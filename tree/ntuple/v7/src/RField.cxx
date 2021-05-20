@@ -297,12 +297,47 @@ void ROOT::Experimental::Detail::RFieldBase::Flush() const
 }
 
 
-void ROOT::Experimental::Detail::RFieldBase::ConnectPageStorage(RPageStorage &pageStorage)
+ROOT::Experimental::EColumnType ROOT::Experimental::Detail::RFieldBase::EnsureColumnType(
+   const std::vector<EColumnType> &allowedTypes, unsigned int columnIndex, const RNTupleDescriptor &desc)
 {
-   if (fColumns.empty())
-      GenerateColumnsImpl();
+   R__ASSERT(!allowedTypes.empty());
+   auto columnId = desc.FindColumnId(fOnDiskId, columnIndex);
+   if (columnId == kInvalidDescriptorId) {
+      throw RException(R__FAIL("Column missing: column #" + std::to_string(columnIndex) +
+                               " for field " + fName));
+   }
+
+   const auto &columnDesc = desc.GetColumnDescriptor(columnId);
+   for (auto type : allowedTypes) {
+      if (type == columnDesc.GetModel().GetType())
+         return type;
+   }
+   throw RException(R__FAIL(
+      "Unexpected column type: " + RColumnElementBase::GetTypeName(columnDesc.GetModel().GetType()) + " of "
+      "column #" + std::to_string(columnIndex) + " for field " + fName));
+   return columnDesc.GetModel().GetType();
+}
+
+
+void ROOT::Experimental::Detail::RFieldBase::ConnectPageSink(RPageSink &pageSink)
+{
+   R__ASSERT(fColumns.empty());
+   GenerateColumnsImpl();
+   if (!fColumns.empty())
+      fPrincipalColumn = fColumns[0].get();
    for (auto& column : fColumns)
-      column->Connect(fOnDiskId, &pageStorage);
+      column->Connect(fOnDiskId, &pageSink);
+}
+
+
+void ROOT::Experimental::Detail::RFieldBase::ConnectPageSource(RPageSource &pageSource)
+{
+   R__ASSERT(fColumns.empty());
+   GenerateColumnsImpl(pageSource.GetDescriptor());
+   if (!fColumns.empty())
+      fPrincipalColumn = fColumns[0].get();
+   for (auto& column : fColumns)
+      column->Connect(fOnDiskId, &pageSource);
 }
 
 
@@ -387,7 +422,12 @@ void ROOT::Experimental::RField<ROOT::Experimental::ClusterSize_t>::GenerateColu
    RColumnModel model(EColumnType::kIndex, true /* isSorted*/);
    fColumns.emplace_back(std::unique_ptr<Detail::RColumn>(
       Detail::RColumn::Create<ClusterSize_t, EColumnType::kIndex>(model, 0)));
-   fPrincipalColumn = fColumns[0].get();
+}
+
+void ROOT::Experimental::RField<ROOT::Experimental::ClusterSize_t>::GenerateColumnsImpl(const RNTupleDescriptor &desc)
+{
+   EnsureColumnType({EColumnType::kIndex}, 0, desc);
+   GenerateColumnsImpl();
 }
 
 void ROOT::Experimental::RField<ROOT::Experimental::ClusterSize_t>::AcceptVisitor(Detail::RFieldVisitor &visitor) const
@@ -402,7 +442,12 @@ void ROOT::Experimental::RField<char>::GenerateColumnsImpl()
    RColumnModel model(EColumnType::kByte, false /* isSorted*/);
    fColumns.emplace_back(std::unique_ptr<Detail::RColumn>(Detail::RColumn::Create<
       char, EColumnType::kByte>(model, 0)));
-   fPrincipalColumn = fColumns[0].get();
+}
+
+void ROOT::Experimental::RField<char>::GenerateColumnsImpl(const RNTupleDescriptor &desc)
+{
+   EnsureColumnType({EColumnType::kByte}, 0, desc);
+   GenerateColumnsImpl();
 }
 
 void ROOT::Experimental::RField<char>::AcceptVisitor(Detail::RFieldVisitor &visitor) const
@@ -417,7 +462,12 @@ void ROOT::Experimental::RField<std::int8_t>::GenerateColumnsImpl()
    RColumnModel model(EColumnType::kByte, false /* isSorted*/);
    fColumns.emplace_back(std::unique_ptr<Detail::RColumn>(Detail::RColumn::Create<
       std::int8_t, EColumnType::kByte>(model, 0)));
-   fPrincipalColumn = fColumns[0].get();
+}
+
+void ROOT::Experimental::RField<std::int8_t>::GenerateColumnsImpl(const RNTupleDescriptor &desc)
+{
+   EnsureColumnType({EColumnType::kByte}, 0, desc);
+   GenerateColumnsImpl();
 }
 
 void ROOT::Experimental::RField<std::int8_t>::AcceptVisitor(Detail::RFieldVisitor &visitor) const
@@ -432,7 +482,12 @@ void ROOT::Experimental::RField<std::uint8_t>::GenerateColumnsImpl()
    RColumnModel model(EColumnType::kByte, false /* isSorted*/);
    fColumns.emplace_back(std::unique_ptr<Detail::RColumn>(Detail::RColumn::Create<
       std::uint8_t, EColumnType::kByte>(model, 0)));
-   fPrincipalColumn = fColumns[0].get();
+}
+
+void ROOT::Experimental::RField<std::uint8_t>::GenerateColumnsImpl(const RNTupleDescriptor &desc)
+{
+   EnsureColumnType({EColumnType::kByte}, 0, desc);
+   GenerateColumnsImpl();
 }
 
 void ROOT::Experimental::RField<std::uint8_t>::AcceptVisitor(Detail::RFieldVisitor &visitor) const
@@ -448,7 +503,12 @@ void ROOT::Experimental::RField<bool>::GenerateColumnsImpl()
    RColumnModel model(EColumnType::kBit, false /* isSorted*/);
    fColumns.emplace_back(std::unique_ptr<Detail::RColumn>(
       Detail::RColumn::Create<bool, EColumnType::kBit>(model, 0)));
-   fPrincipalColumn = fColumns[0].get();
+}
+
+void ROOT::Experimental::RField<bool>::GenerateColumnsImpl(const RNTupleDescriptor &desc)
+{
+   EnsureColumnType({EColumnType::kBit}, 0, desc);
+   GenerateColumnsImpl();
 }
 
 void ROOT::Experimental::RField<bool>::AcceptVisitor(Detail::RFieldVisitor &visitor) const
@@ -464,7 +524,12 @@ void ROOT::Experimental::RField<float>::GenerateColumnsImpl()
    RColumnModel model(EColumnType::kReal32, false /* isSorted*/);
    fColumns.emplace_back(std::unique_ptr<Detail::RColumn>(
       Detail::RColumn::Create<float, EColumnType::kReal32>(model, 0)));
-   fPrincipalColumn = fColumns[0].get();
+}
+
+void ROOT::Experimental::RField<float>::GenerateColumnsImpl(const RNTupleDescriptor &desc)
+{
+   EnsureColumnType({EColumnType::kReal32}, 0, desc);
+   GenerateColumnsImpl();
 }
 
 void ROOT::Experimental::RField<float>::AcceptVisitor(Detail::RFieldVisitor &visitor) const
@@ -480,7 +545,12 @@ void ROOT::Experimental::RField<double>::GenerateColumnsImpl()
    RColumnModel model(EColumnType::kReal64, false /* isSorted*/);
    fColumns.emplace_back(std::unique_ptr<Detail::RColumn>(
       Detail::RColumn::Create<double, EColumnType::kReal64>(model, 0)));
-   fPrincipalColumn = fColumns[0].get();
+}
+
+void ROOT::Experimental::RField<double>::GenerateColumnsImpl(const RNTupleDescriptor &desc)
+{
+   EnsureColumnType({EColumnType::kReal64}, 0, desc);
+   GenerateColumnsImpl();
 }
 
 void ROOT::Experimental::RField<double>::AcceptVisitor(Detail::RFieldVisitor &visitor) const
@@ -495,7 +565,12 @@ void ROOT::Experimental::RField<std::int16_t>::GenerateColumnsImpl()
    RColumnModel model(EColumnType::kInt16, false /* isSorted*/);
    fColumns.emplace_back(std::unique_ptr<Detail::RColumn>(Detail::RColumn::Create<
       std::int16_t, EColumnType::kInt16>(model, 0)));
-   fPrincipalColumn = fColumns[0].get();
+}
+
+void ROOT::Experimental::RField<std::int16_t>::GenerateColumnsImpl(const RNTupleDescriptor &desc)
+{
+   EnsureColumnType({EColumnType::kInt16}, 0, desc);
+   GenerateColumnsImpl();
 }
 
 void ROOT::Experimental::RField<std::int16_t>::AcceptVisitor(Detail::RFieldVisitor &visitor) const
@@ -510,7 +585,12 @@ void ROOT::Experimental::RField<std::uint16_t>::GenerateColumnsImpl()
    RColumnModel model(EColumnType::kInt16, false /* isSorted*/);
    fColumns.emplace_back(std::unique_ptr<Detail::RColumn>(Detail::RColumn::Create<
       std::uint16_t, EColumnType::kInt16>(model, 0)));
-   fPrincipalColumn = fColumns[0].get();
+}
+
+void ROOT::Experimental::RField<std::uint16_t>::GenerateColumnsImpl(const RNTupleDescriptor &desc)
+{
+   EnsureColumnType({EColumnType::kInt16}, 0, desc);
+   GenerateColumnsImpl();
 }
 
 void ROOT::Experimental::RField<std::uint16_t>::AcceptVisitor(Detail::RFieldVisitor &visitor) const
@@ -525,7 +605,12 @@ void ROOT::Experimental::RField<std::int32_t>::GenerateColumnsImpl()
    RColumnModel model(EColumnType::kInt32, false /* isSorted*/);
    fColumns.emplace_back(std::unique_ptr<Detail::RColumn>(Detail::RColumn::Create<
       std::int32_t, EColumnType::kInt32>(model, 0)));
-   fPrincipalColumn = fColumns[0].get();
+}
+
+void ROOT::Experimental::RField<std::int32_t>::GenerateColumnsImpl(const RNTupleDescriptor &desc)
+{
+   EnsureColumnType({EColumnType::kInt32}, 0, desc);
+   GenerateColumnsImpl();
 }
 
 void ROOT::Experimental::RField<std::int32_t>::AcceptVisitor(Detail::RFieldVisitor &visitor) const
@@ -540,7 +625,12 @@ void ROOT::Experimental::RField<std::uint32_t>::GenerateColumnsImpl()
    RColumnModel model(EColumnType::kInt32, false /* isSorted*/);
    fColumns.emplace_back(std::unique_ptr<Detail::RColumn>(
       Detail::RColumn::Create<std::uint32_t, EColumnType::kInt32>(model, 0)));
-   fPrincipalColumn = fColumns[0].get();
+}
+
+void ROOT::Experimental::RField<std::uint32_t>::GenerateColumnsImpl(const RNTupleDescriptor &desc)
+{
+   EnsureColumnType({EColumnType::kInt32}, 0, desc);
+   GenerateColumnsImpl();
 }
 
 void ROOT::Experimental::RField<std::uint32_t>::AcceptVisitor(Detail::RFieldVisitor &visitor) const
@@ -555,7 +645,12 @@ void ROOT::Experimental::RField<std::uint64_t>::GenerateColumnsImpl()
    RColumnModel model(EColumnType::kInt64, false /* isSorted*/);
    fColumns.emplace_back(std::unique_ptr<Detail::RColumn>(
       Detail::RColumn::Create<std::uint64_t, EColumnType::kInt64>(model, 0)));
-   fPrincipalColumn = fColumns[0].get();
+}
+
+void ROOT::Experimental::RField<std::uint64_t>::GenerateColumnsImpl(const RNTupleDescriptor &desc)
+{
+   EnsureColumnType({EColumnType::kInt64}, 0, desc);
+   GenerateColumnsImpl();
 }
 
 void ROOT::Experimental::RField<std::uint64_t>::AcceptVisitor(Detail::RFieldVisitor &visitor) const
@@ -570,7 +665,19 @@ void ROOT::Experimental::RField<std::int64_t>::GenerateColumnsImpl()
    RColumnModel model(EColumnType::kInt64, false /* isSorted*/);
    fColumns.emplace_back(std::unique_ptr<Detail::RColumn>(
       Detail::RColumn::Create<std::int64_t, EColumnType::kInt64>(model, 0)));
-   fPrincipalColumn = fColumns[0].get();
+}
+
+void ROOT::Experimental::RField<std::int64_t>::GenerateColumnsImpl(const RNTupleDescriptor &desc)
+{
+   auto type = EnsureColumnType({EColumnType::kInt64, EColumnType::kInt32}, 0, desc);
+   RColumnModel model(type, false /* isSorted*/);
+   if (type == EColumnType::kInt64) {
+      fColumns.emplace_back(std::unique_ptr<Detail::RColumn>(
+         Detail::RColumn::Create<std::int64_t, EColumnType::kInt64>(model, 0)));
+   } else {
+      fColumns.emplace_back(std::unique_ptr<Detail::RColumn>(
+         Detail::RColumn::Create<std::int64_t, EColumnType::kInt32>(model, 0)));
+   }
 }
 
 void ROOT::Experimental::RField<std::int64_t>::AcceptVisitor(Detail::RFieldVisitor &visitor) const
@@ -589,14 +696,20 @@ void ROOT::Experimental::RField<std::string>::GenerateColumnsImpl()
    RColumnModel modelChars(EColumnType::kByte, false /* isSorted*/);
    fColumns.emplace_back(std::unique_ptr<Detail::RColumn>(
       Detail::RColumn::Create<char, EColumnType::kByte>(modelChars, 1)));
-   fPrincipalColumn = fColumns[0].get();
+}
+
+void ROOT::Experimental::RField<std::string>::GenerateColumnsImpl(const RNTupleDescriptor &desc)
+{
+   EnsureColumnType({EColumnType::kIndex}, 0, desc);
+   EnsureColumnType({EColumnType::kByte}, 1, desc);
+   GenerateColumnsImpl();
 }
 
 void ROOT::Experimental::RField<std::string>::AppendImpl(const ROOT::Experimental::Detail::RFieldValue& value)
 {
    auto typedValue = value.Get<std::string>();
    auto length = typedValue->length();
-   Detail::RColumnElement<char, EColumnType::kByte> elemChars(const_cast<char*>(typedValue->data()));
+   Detail::RColumnElement<char> elemChars(const_cast<char*>(typedValue->data()));
    fColumns[1]->AppendV(elemChars, length);
    fIndex += length;
    fColumns[0]->Append(fElemIndex);
@@ -613,7 +726,7 @@ void ROOT::Experimental::RField<std::string>::ReadGlobalImpl(
       typedValue->clear();
    } else {
       typedValue->resize(nChars);
-      Detail::RColumnElement<char, EColumnType::kByte> elemChars(const_cast<char*>(typedValue->data()));
+      Detail::RColumnElement<char> elemChars(const_cast<char*>(typedValue->data()));
       fColumns[1]->ReadV(collectionStart, nChars, &elemChars);
    }
 }
@@ -690,6 +803,10 @@ void ROOT::Experimental::RClassField::ReadInClusterImpl(const RClusterIndex &clu
 }
 
 void ROOT::Experimental::RClassField::GenerateColumnsImpl()
+{
+}
+
+void ROOT::Experimental::RClassField::GenerateColumnsImpl(const RNTupleDescriptor &)
 {
 }
 
@@ -872,7 +989,7 @@ void ROOT::Experimental::RVectorField::AppendImpl(const Detail::RFieldValue& val
       auto itemValue = fSubFields[0]->CaptureValue(typedValue->data() + (i * fItemSize));
       fSubFields[0]->Append(itemValue);
    }
-   Detail::RColumnElement<ClusterSize_t, EColumnType::kIndex> elemIndex(&fNWritten);
+   Detail::RColumnElement<ClusterSize_t> elemIndex(&fNWritten);
    fNWritten += count;
    fColumns[0]->Append(elemIndex);
 }
@@ -897,7 +1014,12 @@ void ROOT::Experimental::RVectorField::GenerateColumnsImpl()
    RColumnModel modelIndex(EColumnType::kIndex, true /* isSorted*/);
    fColumns.emplace_back(std::unique_ptr<Detail::RColumn>(
       Detail::RColumn::Create<ClusterSize_t, EColumnType::kIndex>(modelIndex, 0)));
-   fPrincipalColumn = fColumns[0].get();
+}
+
+void ROOT::Experimental::RVectorField::GenerateColumnsImpl(const RNTupleDescriptor &desc)
+{
+   EnsureColumnType({EColumnType::kIndex}, 0, desc);
+   GenerateColumnsImpl();
 }
 
 ROOT::Experimental::Detail::RFieldValue ROOT::Experimental::RVectorField::GenerateValue(void* where)
@@ -966,7 +1088,7 @@ void ROOT::Experimental::RField<std::vector<bool>>::AppendImpl(const Detail::RFi
       auto itemValue = fSubFields[0]->CaptureValue(&bval);
       fSubFields[0]->Append(itemValue);
    }
-   Detail::RColumnElement<ClusterSize_t, EColumnType::kIndex> elemIndex(&fNWritten);
+   Detail::RColumnElement<ClusterSize_t> elemIndex(&fNWritten);
    fNWritten += count;
    fColumns[0]->Append(elemIndex);
 }
@@ -993,7 +1115,12 @@ void ROOT::Experimental::RField<std::vector<bool>>::GenerateColumnsImpl()
    RColumnModel modelIndex(EColumnType::kIndex, true /* isSorted*/);
    fColumns.emplace_back(std::unique_ptr<Detail::RColumn>(
       Detail::RColumn::Create<ClusterSize_t, EColumnType::kIndex>(modelIndex, 0)));
-   fPrincipalColumn = fColumns[0].get();
+}
+
+void ROOT::Experimental::RField<std::vector<bool>>::GenerateColumnsImpl(const RNTupleDescriptor &desc)
+{
+   EnsureColumnType({EColumnType::kIndex}, 0, desc);
+   GenerateColumnsImpl();
 }
 
 std::vector<ROOT::Experimental::Detail::RFieldValue>
@@ -1077,6 +1204,10 @@ void ROOT::Experimental::RArrayField::ReadInClusterImpl(const RClusterIndex &clu
 }
 
 void ROOT::Experimental::RArrayField::GenerateColumnsImpl()
+{
+}
+
+void ROOT::Experimental::RArrayField::GenerateColumnsImpl(const RNTupleDescriptor &)
 {
 }
 
@@ -1186,7 +1317,7 @@ void ROOT::Experimental::RVariantField::AppendImpl(const Detail::RFieldValue& va
       index = fNWritten[tag - 1]++;
    }
    RColumnSwitch varSwitch(ClusterSize_t(index), tag);
-   Detail::RColumnElement<RColumnSwitch, EColumnType::kSwitch> elemSwitch(&varSwitch);
+   Detail::RColumnElement<RColumnSwitch> elemSwitch(&varSwitch);
    fColumns[0]->Append(elemSwitch);
 }
 
@@ -1207,7 +1338,12 @@ void ROOT::Experimental::RVariantField::GenerateColumnsImpl()
    RColumnModel modelSwitch(EColumnType::kSwitch, false);
    fColumns.emplace_back(std::unique_ptr<Detail::RColumn>(
       Detail::RColumn::Create<RColumnSwitch, EColumnType::kSwitch>(modelSwitch, 0)));
-   fPrincipalColumn = fColumns[0].get();
+}
+
+void ROOT::Experimental::RVariantField::GenerateColumnsImpl(const RNTupleDescriptor &desc)
+{
+   EnsureColumnType({EColumnType::kSwitch}, 0, desc);
+   GenerateColumnsImpl();
 }
 
 ROOT::Experimental::Detail::RFieldValue ROOT::Experimental::RVariantField::GenerateValue(void *where)
@@ -1270,7 +1406,12 @@ void ROOT::Experimental::RCollectionField::GenerateColumnsImpl()
    RColumnModel modelIndex(EColumnType::kIndex, true /* isSorted*/);
    fColumns.emplace_back(std::unique_ptr<Detail::RColumn>(
       Detail::RColumn::Create<ClusterSize_t, EColumnType::kIndex>(modelIndex, 0)));
-   fPrincipalColumn = fColumns[0].get();
+}
+
+void ROOT::Experimental::RCollectionField::GenerateColumnsImpl(const RNTupleDescriptor &desc)
+{
+   EnsureColumnType({EColumnType::kIndex}, 0, desc);
+   GenerateColumnsImpl();
 }
 
 

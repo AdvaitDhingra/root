@@ -8,15 +8,34 @@
 # For the list of contributors see $ROOTSYS/README/CREDITS.                    #
 ################################################################################
 
-from ROOT import pythonization
 
+r'''
+/**
+\class RooWorkspace
+\brief \parblock \endparblock
+\htmlonly
+<div class="pyrootbox">
+\endhtmlonly
 
-@pythonization()
-def pythonize_rooworkspace(klass, name):
-    # Parameters:
-    # klass: class to be pythonized
-    # name: string containing the name of the class
+## PyROOT
 
-    if name == 'RooWorkspace':
-        # Support the C++ `import()` as `Import()` in python
-        klass.Import = getattr(klass, 'import')
+The RooWorkspace::import function can't be used in PyROOT because `import` is a reserved python keyword.
+For this reason, an alternative with a capitalized name is provided:
+\code{.py}
+
+workspace.Import(x)
+
+\endcode
+
+\htmlonly
+</div>
+\endhtmlonly
+*/
+'''
+
+class RooWorkspace(object):
+    def Import(self, *args, **kwargs):
+        """
+        Support the C++ `import()` as `Import()` in python
+        """
+        return getattr(self, "import")(*args, **kwargs)

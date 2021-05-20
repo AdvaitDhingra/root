@@ -80,3 +80,29 @@ TEST(RNTuple, UnsupportedStdTypes)
       EXPECT_THAT(err.what(), testing::HasSubstr("weak_ptr<int> is not supported"));
    }
 }
+
+TEST(RNTuple, Casting)
+{
+   FileRaii fileGuard("test_ntuple_casting.root");
+   auto modelA = RNTupleModel::Create();
+   modelA->MakeField<std::int32_t>("int", 42);
+   {
+      auto writer = RNTupleWriter::Recreate(std::move(modelA), "ntuple", fileGuard.GetPath());
+      writer->Fill();
+   }
+
+   try {
+      auto modelB = RNTupleModel::Create();
+      auto fieldCast = modelB->MakeField<float>("int");
+      auto reader = RNTupleReader::Open(std::move(modelB), "ntuple", fileGuard.GetPath());
+      FAIL() << "should not be able to cast int to float";
+   } catch (const RException& err) {
+      EXPECT_THAT(err.what(), testing::HasSubstr("Unexpected column type"));
+   }
+
+   auto modelC = RNTupleModel::Create();
+   auto fieldCast = modelC->MakeField<std::int64_t>("int");
+   auto reader = RNTupleReader::Open(std::move(modelC), "ntuple", fileGuard.GetPath());
+   reader->LoadEntry(0);
+   EXPECT_EQ(42, *fieldCast);
+}

@@ -1,10 +1,10 @@
 /// \file
 /// \ingroup tutorial_v7
-//
-/// This ROOT 7 example demonstrates how to create a ROOT 7 canvas (RCanvas),
-/// divide on subpads and draw histograms there
 ///
-/// \macro_image (json)
+/// This ROOT 7 example demonstrates how to create a ROOT 7 canvas (RCanvas),
+/// divide on sub-pads and draw histograms there
+///
+/// \macro_image (rcanvas_js)
 /// \macro_code
 ///
 /// \date 2018-03-13
@@ -80,5 +80,5 @@ void draw_subpads()
   canvas->SetSize(1200, 600);
   canvas->Show();
 
-  RDirectory::Heap().Add("custom_style", style); // required to keep style alive
+  RDirectory::Heap().Add("subpads_style", style); // required to keep style alive
 }

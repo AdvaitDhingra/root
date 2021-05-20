@@ -71,7 +71,7 @@ void ROOT::Experimental::RNTupleReader::ConnectModel(const RNTupleModel &model) 
       if (field.GetOnDiskId() == kInvalidDescriptorId) {
          field.SetOnDiskId(desc.FindFieldId(field.GetName(), field.GetParent()->GetOnDiskId()));
       }
-      field.ConnectPageStorage(*fSource);
+      field.ConnectPageSource(*fSource);
    }
 }
 
@@ -272,7 +272,6 @@ ROOT::Experimental::RNTupleWriter::RNTupleWriter(
    : fSink(std::move(sink))
    , fModel(std::move(model))
    , fMetrics("RNTupleWriter")
-   , fClusterSizeEntries(kDefaultClusterSizeEntries)
    , fLastCommitted(0)
    , fNEntries(0)
 {

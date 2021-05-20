@@ -247,12 +247,10 @@ triggered by Flush() or by destructing the ntuple.  On I/O errors, an exception 
 // clang-format on
 class RNTupleWriter {
 private:
-   static constexpr NTupleSize_t kDefaultClusterSizeEntries = 64000;
    std::unique_ptr<Detail::RPageSink> fSink;
    /// Needs to be destructed before fSink
    std::unique_ptr<RNTupleModel> fModel;
    Detail::RNTupleMetrics fMetrics;
-   NTupleSize_t fClusterSizeEntries;
    NTupleSize_t fLastCommitted;
    NTupleSize_t fNEntries;
 
@@ -282,7 +280,7 @@ public:
          value.GetField()->Append(value);
       }
       fNEntries++;
-      if ((fNEntries % fClusterSizeEntries) == 0)
+      if ((fNEntries % fSink->GetWriteOptions().GetNEntriesPerCluster()) == 0)
          CommitCluster();
    }
    /// Ensure that the data from the so far seen Fill calls has been written to storage

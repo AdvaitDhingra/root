@@ -138,7 +138,7 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
 
       if (val == "auto") {
          let pp = this.getPadPainter();
-         if (pp && pp._auto_color_cnt !== undefined) {
+         if (pp && (pp._auto_color_cnt !== undefined)) {
             let pal = pp.getHistPalette();
             let cnt = pp._auto_color_cnt++, num = pp._num_primitives - 1;
             if (num < 2) num = 2;
@@ -444,7 +444,7 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
       if (this.kind == 'time')
          this.gr = val => this.func(this.convertDate(val));
       else if (this.log)
-         this.gr = val => (val < this.scale_xmin) ? (this.vertical ? this.func.range()[0]+5 : -5) : this.func(val);
+         this.gr = val => (val < this.scale_min) ? (this.vertical ? this.func.range()[0]+5 : -5) : this.func(val);
       else
          this.gr = this.func;
 
@@ -914,7 +914,8 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
       if (res)
          axis_g.append("svg:path")
                .attr("d", res)
-               .style('stroke', this.ticksColor || this.lineatt.color);
+               .style('stroke', this.ticksColor || this.lineatt.color)
+               .style('stroke-width', !this.ticksWidth || (this.ticksWidth == 1) ? null : this.ticksWidth);
 
        let gap0 = Math.round(0.25*this.ticksSize), gap = Math.round(1.25*this.ticksSize);
        return { "-1": (side > 0) || ticks_plusminus ? gap : gap0,
@@ -1121,6 +1122,7 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
       this.ticksSize = this.v7EvalLength("ticks_size", this.scaling_size, 0.02);
       this.ticksSide = this.v7EvalAttr("ticks_side", "normal");
       this.ticksColor = this.v7EvalColor("ticks_color", "");
+      this.ticksWidth = this.v7EvalAttr("ticks_width", 1);
       this.labelsOffset = this.v7EvalLength("labels_offset", this.scaling_size, 0);
 
       this.fTitle = this.v7EvalAttr("title", "");
@@ -1367,10 +1369,9 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
       menu.add("endsub:");
 
       menu.add("sub:Ticks");
-      menu.addRColorMenu("color", this.ticksColor, col => this.changeAxisAttr(1, "ticks_color_name", col));
+      menu.addRColorMenu("color", this.ticksColor, col => this.changeAxisAttr(1, "ticks_color", col));
       menu.addSizeMenu("size", 0, 0.05, 0.01, this.ticksSize/this.scaling_size, sz => this.changeAxisAttr(1, "ticks_size", sz));
       menu.addSelectMenu("side", ["normal", "invert", "both"], this.ticksSide, side => this.changeAxisAttr(1, "ticks_side", side));
-
       menu.add("endsub:");
 
       if (!this.optionUnlab && this.labelsFont) {
@@ -1504,6 +1505,7 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
       return this.fLastEventPnt;
    }
 
+   /** @summary Update graphical attributes */
    RFramePainter.prototype.updateAttributes = function(force) {
       if ((this.fX1NDC === undefined) || (force && !this.modified_NDC)) {
 
@@ -1634,84 +1636,61 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
       return value.toPrecision(4);
    }
 
+   /** @summary Set axix range */
+   RFramePainter.prototype._setAxisRange = function(prefix, vmin, vmax) {
+      let nmin = prefix + "min", nmax = prefix + "max";
+      if (this[nmin] != this[nmax]) return;
+      let min = this.v7EvalAttr(prefix + "_min"),
+          max = this.v7EvalAttr(prefix + "_max");
+
+      if (min !== undefined) vmin = min;
+      if (max !== undefined) vmax = max;
+
+      if (vmin < vmax) {
+         this[nmin] = vmin;
+         this[nmax] = vmax;
+      }
+
+      let nzmin = "zoom_" + prefix + "min", nzmax = "zoom_" + prefix + "max";
+
+      if ((this[nzmin] == this[nzmax]) && !this.zoomChangedInteractive(prefix)) {
+         min = this.v7EvalAttr(prefix + "_zoommin");
+         max = this.v7EvalAttr(prefix + "_zoommax");
+
+         if ((min !== undefined) || (max !== undefined)) {
+            this[nzmin] = (min === undefined) ? this[nmin] : min;
+            this[nzmax] = (max === undefined) ? this[nmax] : max;
+         }
+      }
+   }
+
    /** @summary Set axes ranges for drawing, check configured attributes if range already specified */
    RFramePainter.prototype.setAxesRanges = function(xaxis, xmin, xmax, yaxis, ymin, ymax, zaxis, zmin, zmax) {
       if (this.axes_drawn) return;
-
       this.xaxis = xaxis;
+      this._setAxisRange("x", xmin, xmax);
       this.yaxis = yaxis;
+      this._setAxisRange("y", ymin, ymax);
       this.zaxis = zaxis;
+      this._setAxisRange("z", zmin, zmax);
+   }
 
-      let min, max;
-
-      if (this.xmin == this.xmax) {
-         min = this.v7EvalAttr("x_min");
-         max = this.v7EvalAttr("x_max");
-
-         if (min !== undefined) xmin = min;
-         if (max !== undefined) xmax = max;
-
-         if (xmin < xmax) {
-            this.xmin = xmin;
-            this.xmax = xmax;
-         }
-
-         if ((this.zoom_xmin == this.zoom_xmax) && !this.zoomChangedInteractive("x")) {
-            min = this.v7EvalAttr("x_zoommin");
-            max = this.v7EvalAttr("x_zoommax");
-
-            if ((min !== undefined) || (max !== undefined)) {
-               this.zoom_xmin = (min === undefined) ? this.xmin : min;
-               this.zoom_xmax = (max === undefined) ? this.xmax : max;
-            }
-         }
+   /** @summary Set secondary axes ranges */
+   RFramePainter.prototype.setAxes2Ranges = function(second_x, xaxis, xmin, xmax, second_y, yaxis, ymin, ymax) {
+      if (second_x) {
+         this.x2axis = xaxis;
+         this._setAxisRange("x2", xmin, xmax);
       }
-
-      if (this.ymin == this.ymax) {
-         min = this.v7EvalAttr("y_min");
-         max = this.v7EvalAttr("y_max");
-
-         if (min !== undefined) ymin = min;
-         if (max !== undefined) ymax = max;
-
-         if (ymin < ymax) {
-            this.ymin = ymin;
-            this.ymax = ymax;
-         }
-
-         if ((this.zoom_ymin == this.zoom_ymax) && !this.zoomChangedInteractive("y")) {
-            min = this.v7EvalAttr("y_zoommin");
-            max = this.v7EvalAttr("y_zoommax");
-
-            if ((min !== undefined) || (max !== undefined)) {
-               this.zoom_ymin = (min === undefined) ? this.ymin : min;
-               this.zoom_ymax = (max === undefined) ? this.ymax : max;
-            }
-         }
+      if (second_y) {
+         this.y2axis = yaxis;
+         this._setAxisRange("y2", ymin, ymax);
       }
+   }
 
-      if (this.zmin == this.zmax) {
-         min = this.v7EvalAttr("z_min");
-         max = this.v7EvalAttr("z_max");
-
-         if (min !== undefined) zmin = min;
-         if (max !== undefined) zmax = max;
-
-         if (zmin < zmax) {
-            this.zmin = zmin;
-            this.zmax = zmax;
-         }
-
-         if ((this.zoom_zmin == this.zoom_zmax) && !this.zoomChangedInteractive("z")) {
-            min = this.v7EvalAttr("z_zoommin");
-            max = this.v7EvalAttr("z_zoommax");
-
-            if ((min !== undefined) || (max !== undefined)) {
-               this.zoom_zmin = (min === undefined) ? this.zmin : min;
-               this.zoom_zmax = (max === undefined) ? this.zmax : max;
-            }
-         }
-      }
+   /** @summary Identify if requested axes are drawn
+     * @desc Checks if x/y axes are drawn. Also if second side is already there */
+   RFramePainter.prototype.hasDrawnAxes = function(second_x, second_y) {
+      return !second_x && !second_y ? this.axes_drawn : false;
    }
 
    /** @summary Draw configured axes on the frame
@@ -1728,27 +1707,25 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
           ticksy = this.v7EvalAttr("ticksy", 1),
           sidex = 1, sidey = 1;
 
-      // ticksx = 2; ticksy = 2;
-
       if (this.v7EvalAttr("swapx", false)) sidex = -1;
       if (this.v7EvalAttr("swapy", false)) sidey = -1;
 
       let w = this.getFrameWidth(), h = this.getFrameHeight();
 
-      this.scale_xmin = this.xmin;
-      this.scale_xmax = this.xmax;
-
-      this.scale_ymin = this.ymin;
-      this.scale_ymax = this.ymax;
-
       if (this.zoom_xmin != this.zoom_xmax) {
          this.scale_xmin = this.zoom_xmin;
          this.scale_xmax = this.zoom_xmax;
+      } else {
+         this.scale_xmin = this.xmin;
+         this.scale_xmax = this.xmax;
       }
 
       if (this.zoom_ymin != this.zoom_ymax) {
          this.scale_ymin = this.zoom_ymin;
          this.scale_ymax = this.zoom_ymax;
+      } else {
+         this.scale_ymin = this.ymin;
+         this.scale_ymax = this.ymax;
       }
 
       this.recalculateRange(0);
@@ -1780,15 +1757,16 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
 
       let draw_horiz = this.swap_xy ? this.y_handle : this.x_handle,
           draw_vertical = this.swap_xy ? this.x_handle : this.y_handle,
-          pp = this.getPadPainter(),
-          disable_axis_draw = (pp && pp._fast_drawing) ? true : false;
+          pp = this.getPadPainter(), draw_promise;
 
-      if (!disable_axis_draw) {
+      if (pp && pp._fast_drawing) {
+         draw_promise = Promise.resolve(true)
+      } else {
          let promise1 = draw_horiz.drawAxis(layer, (sidex > 0) ? `translate(0,${h})` : "", sidex);
 
          let promise2 = draw_vertical.drawAxis(layer, (sidey > 0) ? `translate(0,${h})` : `translate(${w},${h})`, sidey);
 
-         return Promise.all([promise1, promise2]).then(() => {
+         draw_promise = Promise.all([promise1, promise2]).then(() => {
 
             let again = [];
             if (ticksx > 1)
@@ -1798,16 +1776,95 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
                again.push(draw_vertical.drawAxisOtherPlace(layer, (sidey < 0) ? `translate(0,${h})` : `translate(${w},${h})`, -sidey, ticksy == 2));
 
              return Promise.all(again);
-         }).then(() => {
-             this.drawGrids();
-             this.axes_drawn = true;
-             return true;
-         });
+         }).then(() => this.drawGrids());
       }
 
-      this.axes_drawn = true;
+      return draw_promise.then(() => {
+         this.axes_drawn = true;
+         return true;
+      });
+   }
 
-      return Promise.resolve(true);
+   /** @summary Draw secondary configuread axes */
+   RFramePainter.prototype.drawAxes2 = function(second_x, second_y) {
+      let w = this.getFrameWidth(), h = this.getFrameHeight(),
+          layer = this.getFrameSvg().select(".axis_layer"),
+          promise1 = true, promise2 = true;
+
+      if (second_x) {
+         if (this.zoom_x2min != this.zoom_x2max) {
+            this.scale_x2min = this.zoom_x2min;
+            this.scale_x2max = this.zoom_x2max;
+         } else {
+           this.scale_x2min = this.x2min;
+           this.scale_x2max = this.x2max;
+         }
+         this.x2_handle = new RAxisPainter(this.getDom(), this, this.x2axis, "x2_");
+         this.x2_handle.setPadName(this.getPadName());
+         this.x2_handle.snapid = this.snapid;
+
+         this.x2_handle.configureAxis("x2axis", this.x2min, this.x2max, this.scale_x2min, this.scale_x2max, false, [0,w], w, { reverse: false });
+         this.x2_handle.assignFrameMembers(this,"x2");
+
+         promise1 = this.x2_handle.drawAxis(layer, "", -1);
+      }
+
+      if (second_y) {
+         if (this.zoom_y2min != this.zoom_y2max) {
+            this.scale_y2min = this.zoom_y2min;
+            this.scale_y2max = this.zoom_y2max;
+         } else {
+            this.scale_y2min = this.y2min;
+            this.scale_y2max = this.y2max;
+         }
+
+         this.y2_handle = new RAxisPainter(this.getDom(), this, this.y2axis, "y2_");
+         this.y2_handle.setPadName(this.getPadName());
+         this.y2_handle.snapid = this.snapid;
+
+         this.y2_handle.configureAxis("y2axis", this.y2min, this.y2max, this.scale_y2min, this.scale_y2max, true, [h,0], -h, { reverse: false });
+         this.y2_handle.assignFrameMembers(this,"y2");
+
+         promise2 = this.y2_handle.drawAxis(layer, `translate(${w},${h})`, -1);
+      }
+
+      return Promise.all([promise1, promise2]);
+   }
+
+   /** @summary Return functions to create x/y points based on coordinates
+     * @desc In default case returns frame painter itself
+     * @private */
+   RFramePainter.prototype.getGrFuncs = function(second_x, second_y) {
+      let use_x2 = second_x && this.grx2,
+          use_y2 = second_y && this.gry2;
+      if (!use_x2 && !use_y2) return this;
+
+      return {
+         use_x2: use_x2,
+         grx: use_x2 ? this.grx2 : this.grx,
+         x_handle: use_x2 ? this.x2_handle : this.x_handle,
+         logx: use_x2 ? this.x2_handle.log : this.x_handle.log,
+         scale_xmin: use_x2 ? this.scale_x2min : this.scale_xmin,
+         scale_xmax: use_x2 ? this.scale_x2max : this.scale_xmax,
+         use_y2: use_y2,
+         gry: use_y2 ? this.gry2 : this.gry,
+         y_handle: use_y2 ? this.y2_handle : this.y_handle,
+         logy: use_y2 ? this.y2_handle.log : this.y_handle.log,
+         scale_ymin: use_y2 ? this.scale_y2min : this.scale_ymin,
+         scale_ymax: use_y2 ? this.scale_y2max : this.scale_ymax,
+         swap_xy: this.swap_xy,
+         fp: this,
+         revertAxis: function(name, v) {
+            if ((name == "x") && this.use_x2) name = "x2";
+            if ((name == "y") && this.use_y2) name = "y2";
+            return this.fp.revertAxis(name, v);
+         },
+         axisAsText: function(name, v) {
+            if ((name == "x") && this.use_x2) name = "x2";
+            if ((name == "y") && this.use_y2) name = "y2";
+            return this.fp.axisAsText(name, v);
+         }
+      };
    }
 
    /** @summary function called at the end of resize of frame
@@ -1828,30 +1885,25 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
    /** @summary Remove all axes drawings */
    RFramePainter.prototype.cleanupAxes = function() {
       // remove all axes drawings
-      if (this.x_handle) {
-         this.x_handle.cleanup();
-         delete this.x_handle;
-      }
+      let clean = (name,grname) => {
+         if (this[name]) {
+            this[name].cleanup();
+            delete this[name];
+         }
+         delete this[grname];
+      };
 
-      if (this.y_handle) {
-         this.y_handle.cleanup();
-         delete this.y_handle;
-      }
-
-      if (this.z_handle) {
-         this.z_handle.cleanup();
-         delete this.z_handle;
-      }
+      clean("x_handle", "grx");
+      clean("y_handle", "gry");
+      clean("z_handle", "grz");
+      clean("x2_handle", "grx2");
+      clean("y2_handle", "gry2");
 
       if (this.draw_g) {
          this.draw_g.select(".grid_layer").selectAll("*").remove();
          this.draw_g.select(".axis_layer").selectAll("*").remove();
       }
       this.axes_drawn = false;
-
-      delete this.grx;
-      delete this.gry;
-      delete this.grz;
    }
 
    /** @summary Removes all drawn elements of the frame
@@ -1863,17 +1915,17 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
 
       this.cleanupAxes();
 
-      this.xmin = this.xmax = 0;
-      this.ymin = this.ymax = 0;
-      this.zmin = this.zmax = 0;
+      let clean = (name) => {
+         this[name+"min"] = this[name+"max"] = 0;
+         this["zoom_"+name+"min"] = this["zoom_"+name+"max"] = 0;
+         this["scale_"+name+"min"] = this["scale_"+name+"max"] = 0;
+      };
 
-      this.zoom_xmin = this.zoom_xmax = 0;
-      this.zoom_ymin = this.zoom_ymax = 0;
-      this.zoom_zmin = this.zoom_zmax = 0;
-
-      this.scale_xmin = this.scale_xmax = 0;
-      this.scale_ymin = this.scale_ymax = 0;
-      this.scale_zmin = this.scale_zmax = 0;
+      clean("x");
+      clean("y");
+      clean("z");
+      clean("x2");
+      clean("y2");
 
       if (this.draw_g) {
          this.draw_g.select(".main_layer").selectAll("*").remove();
@@ -1901,10 +1953,13 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
          this.keys_handler = null;
       }
       delete this.enabledKeys;
+      delete this.self_drawaxes;
 
       delete this.xaxis;
       delete this.yaxis;
       delete this.zaxis;
+      delete this.x2axis;
+      delete this.y2axis;
 
       delete this.draw_g; // frame <g> element managet by the pad
 
@@ -2010,9 +2065,17 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
               .attr("height", h)
               .attr("viewBox", "0 0 " + w + " " + h);
 
-      if (JSROOT.batch_mode) return;
+      let promise = Promise.resolve(true);
 
-      JSROOT.require(['interactive']).then(inter => {
+      if (this.v7EvalAttr("drawaxes")) {
+         this.self_drawaxes = true;
+         this.setAxesRanges();
+         promise = this.drawAxes().then(() => this.addInteractivity());
+      }
+
+      if (JSROOT.batch_mode) return promise;
+
+      return promise.then(() => JSROOT.require(['interactive'])).then(inter => {
          top_rect.attr("pointer-events", "visibleFill");  // let process mouse events inside frame
          inter.FrameInteractive.assign(this);
          this.addBasicInteractivity();
@@ -2053,7 +2116,7 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
 
    /** @summary function can be used for zooming into specified range
      * @desc if both limits for each axis 0 (like xmin==xmax==0), axis will be unzoomed
-    * @returns {Promise} with boolean flag if zoom operation was performed */
+     * @returns {Promise} with boolean flag if zoom operation was performed */
    RFramePainter.prototype.zoom = function(xmin, xmax, ymin, ymax, zmin, zmax) {
 
       // disable zooming when axis conversion is enabled
@@ -2094,83 +2157,143 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
          unzoom_z = (zmin === zmax) && (zmin === 0);
       }
 
-      let changed = false, changes = {},
-          r_x = "", r_y = "", r_z = "",
+      let changed = false,
+          r_x = "", r_y = "", r_z = "", is_any_check = false,
          req = {
-         _typename: "ROOT::Experimental::RFrame::RUserRanges",
-         values: [0, 0, 0, 0, 0, 0],
-         flags: [false, false, false, false, false, false]
+            _typename: "ROOT::Experimental::RFrame::RUserRanges",
+            values: [0, 0, 0, 0, 0, 0],
+            flags: [false, false, false, false, false, false]
+         };
+
+      let checkZooming = (painter, force) => {
+         if (!force && (typeof painter.canZoomInside != 'function')) return;
+
+         is_any_check = true;
+
+         if (zoom_x && (force || painter.canZoomInside("x", xmin, xmax))) {
+            this.zoom_xmin = xmin;
+            this.zoom_xmax = xmax;
+            changed = true; r_x = "0";
+            zoom_x = false;
+            req.values[0] = xmin; req.values[1] = xmax;
+            req.flags[0] = req.flags[1] = true;
+         }
+         if (zoom_y && (force || painter.canZoomInside("y", ymin, ymax))) {
+            this.zoom_ymin = ymin;
+            this.zoom_ymax = ymax;
+            changed = true; r_y = "1";
+            zoom_y = false;
+            req.values[2] = ymin; req.values[3] = ymax;
+            req.flags[2] = req.flags[3] = true;
+         }
+         if (zoom_z && (force || painter.canZoomInside("z", zmin, zmax))) {
+            this.zoom_zmin = zmin;
+            this.zoom_zmax = zmax;
+            changed = true; r_z = "2";
+            zoom_z = false;
+            req.values[4] = zmin; req.values[5] = zmax;
+            req.flags[4] = req.flags[5] = true;
+         }
       };
 
       // first process zooming (if any)
       if (zoom_x || zoom_y || zoom_z)
-         this.forEachPainter(obj => {
-            if (typeof obj.canZoomInside != 'function') return;
-            if (zoom_x && obj.canZoomInside("x", xmin, xmax)) {
-               this.zoom_xmin = xmin;
-               this.zoom_xmax = xmax;
-               changed = true; r_x = "0";
-               zoom_x = false;
-               this.v7AttrChange(changes, "x_zoommin", xmin);
-               this.v7AttrChange(changes, "x_zoommax", xmax);
-               req.values[0] = xmin; req.values[1] = xmax;
-               req.flags[0] = req.flags[1] = true;
-            }
-            if (zoom_y && obj.canZoomInside("y", ymin, ymax)) {
-               this.zoom_ymin = ymin;
-               this.zoom_ymax = ymax;
-               changed = true; r_y = "1";
-               zoom_y = false;
-               this.v7AttrChange(changes, "y_zoommin", ymin);
-               this.v7AttrChange(changes, "y_zoommax", ymax);
-               req.values[2] = ymin; req.values[3] = ymax;
-               req.flags[2] = req.flags[3] = true;
-            }
-            if (zoom_z && obj.canZoomInside("z", zmin, zmax)) {
-               this.zoom_zmin = zmin;
-               this.zoom_zmax = zmax;
-               changed = true; r_z = "2";
-               zoom_z = false;
-               this.v7AttrChange(changes, "z_zoommin", zmin);
-               this.v7AttrChange(changes, "z_zoommax", zmax);
-               req.values[4] = zmin; req.values[5] = zmax;
-               req.flags[4] = req.flags[5] = true;
-            }
-         });
+         this.forEachPainter(painter => checkZooming(painter));
+
+      // force zooming when no any other painter can verify zoom range
+      if (!is_any_check && this.self_drawaxes)
+         checkZooming(null, true);
 
       // and process unzoom, if any
       if (unzoom_x || unzoom_y || unzoom_z) {
          if (unzoom_x) {
             if (this.zoom_xmin !== this.zoom_xmax) { changed = true; r_x = "0"; }
             this.zoom_xmin = this.zoom_xmax = 0;
-            this.v7AttrChange(changes, "x_zoommin", null);
-            this.v7AttrChange(changes, "x_zoommax", null);
             req.values[0] = req.values[1] = -1;
          }
          if (unzoom_y) {
             if (this.zoom_ymin !== this.zoom_ymax) { changed = true; r_y = "1"; }
             this.zoom_ymin = this.zoom_ymax = 0;
-            this.v7AttrChange(changes, "y_zoommin", null);
-            this.v7AttrChange(changes, "y_zoommax", null);
             req.values[2] = req.values[3] = -1;
          }
          if (unzoom_z) {
             if (this.zoom_zmin !== this.zoom_zmax) { changed = true; r_z = "2"; }
             this.zoom_zmin = this.zoom_zmax = 0;
-            this.v7AttrChange(changes, "z_zoommin", null);
-            this.v7AttrChange(changes, "z_zoommax", null);
             req.values[4] = req.values[5] = -1;
          }
       }
 
+      if (!changed) return Promise.resolve(false);
+
       if (this.v7CommMode() == JSROOT.v7.CommMode.kNormal)
          this.v7SubmitRequest("zoom", { _typename: "ROOT::Experimental::RFrame::RZoomRequest", ranges: req });
 
-      // this.v7SendAttrChanges(changes);
+      return this.interactiveRedraw("pad", "zoom" + r_x + r_y + r_z).then(() => true);
+   }
+
+   /** @summary Provide zooming of single axis
+     * @desc One can specify names like x/y/z but also second axis x2 or y2 */
+   RFramePainter.prototype.zoomSingle = function(name, vmin, vmax) {
+
+      let names = ["x","y","z","x2","y2"], indx = names.indexOf(name);
+
+      // disable zooming when axis conversion is enabled
+      if (this.projection || !this[name+"_handle"] || (indx < 0))
+         return Promise.resolve(false);
+
+      let zoom_v = (vmin !== vmax), unzoom_v = false;
+
+      if (zoom_v) {
+         let cnt = 0;
+         if (vmin <= this[name+"min"]) { vmin = this[name+"min"]; cnt++; }
+         if (vmax >= this[name+"max"]) { vmax = this[name+"max"]; cnt++; }
+         if (cnt === 2) { zoom_v = false; unzoom_v = true; }
+      } else {
+         unzoom_v = (vmin === vmax) && (vmin === 0);
+      }
+
+      let changed = false, is_any_check = false,
+          req = {
+             _typename: "ROOT::Experimental::RFrame::RUserRanges",
+             values: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+             flags: [false, false, false, false, false, false, false, false, false, false]
+          };
+
+      let checkZooming = (painter, force) => {
+         if (!force && (typeof painter.canZoomInside != 'function')) return;
+
+         is_any_check = true;
+
+         if (zoom_v && (force || painter.canZoomInside(name[0], vmin, vmax))) {
+            this["zoom_" + name + "min"] = vmin;
+            this["zoom_" + name + "max"] = vmax;
+            changed = true;
+            zoom_v = false;
+            req.values[indx*2] = vmin; req.values[indx*2+1] = vmax;
+            req.flags[indx*2] = req.flags[indx*2+1] = true;
+         }
+      }
+
+      // first process zooming (if any)
+      if (zoom_v)
+         this.forEachPainter(painter => checkZooming(painter));
+
+      // force zooming when no any other painter can verify zoom range
+      if (!is_any_check && this.self_drawaxes)
+         checkZooming(null, true);
+
+      if (unzoom_v) {
+         if (this["zoom_" + name + "min"] !== this["zoom_" + name + "max"]) changed = true;
+         this["zoom_" + name + "min"] = this["zoom_" + name + "max"] = 0;
+         req.values[indx*2] = req.values[indx*2+1] = -1;
+      }
 
       if (!changed) return Promise.resolve(false);
 
-      return this.interactiveRedraw("pad", "zoom" + r_x + r_y + r_z).then(() => true);
+      if (this.v7CommMode() == JSROOT.v7.CommMode.kNormal)
+         this.v7SubmitRequest("zoom", { _typename: "ROOT::Experimental::RFrame::RZoomRequest", ranges: req });
+
+      return this.interactiveRedraw("pad", "zoom" + indx).then(() => true);
    }
 
    /** @summary Checks if specified axis zoomed */
@@ -2181,6 +2304,15 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
    /** @summary Unzoom specified axes
      * @returns {Promise} with boolean flag if zoom is changed */
    RFramePainter.prototype.unzoom = function(dox, doy, doz) {
+      if (dox == "all")
+         return this.unzoom("x2").then(() => this.unzoom("y2")).then(() => this.unzoom("xyz"));
+
+      if ((dox == "x2") || (dox == "y2"))
+         return this.zoomSingle(dox, 0, 0).then(changed => {
+            if (changed) this.zoomChangedInteractive(dox, "unzoom");
+            return changed;
+         });
+
       if (typeof dox === 'undefined') { dox = doy = doz = true; } else
       if (typeof dox === 'string') { doz = dox.indexOf("z") >= 0; doy = dox.indexOf("y") >= 0; dox = dox.indexOf("x") >= 0; }
 
@@ -2241,7 +2373,7 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
 
       // when fill and show context menu, remove all zooming
 
-      if ((kind=="x") || (kind=="y")) {
+      if ((kind=="x") || (kind=="y") || (kind=="x2") || (kind=="y2")) {
          let handle = this[kind+"_handle"];
          if (!handle) return false;
          menu.add("header: " + kind.toUpperCase() + " axis");
@@ -2261,12 +2393,12 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
          menu.add("Unzoom Y", () => this.unzoom("y"));
       if (this.zoom_zmin !== this.zoom_zmax)
          menu.add("Unzoom Z", () => this.unzoom("z"));
-      menu.add("Unzoom all", () => this.unzoom("xyz"));
+      if (this.zoom_x2min !== this.zoom_x2max)
+         menu.add("Unzoom X2", () => this.unzoom("x2"));
+      if (this.zoom_y2min !== this.zoom_y2max)
+         menu.add("Unzoom Y2", () => this.unzoom("y2"));
+      menu.add("Unzoom all", () => this.unzoom("all"));
 
-      // menu.addchk(this.logx, "SetLogx", this.toggleAxisLog.bind(this,"x"));
-      // menu.addchk(this.logy, "SetLogy", this.toggleAxisLog.bind(this,"y"));
-      // if (this.getDimension() == 2)
-      //   menu.addchk(pad.fLogz, "SetLogz", this.toggleAxisLog.bind(main,"z"));
       menu.add("separator");
 
       menu.addchk(this.isTooltipAllowed(), "Show tooltips", () => this.setTooltipAllowed("toggle"));
@@ -2313,14 +2445,14 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
 
    /** @summary Add interactive functionality to the frame
     * @private */
-   RFramePainter.prototype.addInteractivity = function() {
+   RFramePainter.prototype.addInteractivity = function(for_second_axes) {
 
       if (JSROOT.batch_mode || (!JSROOT.settings.Zooming && !JSROOT.settings.ContextMenu))
          return Promise.resolve(true);
 
       return JSROOT.require(['interactive']).then(inter => {
          inter.FrameInteractive.assign(this);
-         return this.addInteractivity();
+         return this.addInteractivity(for_second_axes);
       });
    }
 
@@ -3696,40 +3828,42 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
 
    /** @summary Calculates RPadLength value */
    RPadPainter.prototype.getPadLength = function(vertical, len, frame_painter) {
-      let rect = frame_painter ? frame_painter.getFrameRect() : this.getPadRect();
-      let res = vertical ? rect.height : 0;
-      if (!len) return res;
-
-      let sign = vertical ? -1 : 1;
-
-      function GetV(indx, dflt) {
-         return (len.fArr && (indx < len.fArr.length)) ? len.fArr[indx] : dflt;
-      }
+      let sign = vertical ? -1 : 1,
+          rect, res,
+          getV = (indx, dflt) => (indx < len.fArr.length) ? len.fArr[indx] : dflt,
+          getRect = () => {
+             if (!rect)
+                rect = frame_painter ? frame_painter.getFrameRect() : this.getPadRect();
+             return rect;
+          };
 
       if (frame_painter) {
-         let user = GetV(2);
-         if ((user !== undefined) && frame_painter.grx && frame_painter.gry)
-            res = vertical ? frame_painter.gry(user) : frame_painter.grx(user);
+         let user = getV(2), func = vertical ? "gry" : "grx";
+         if ((user !== undefined) && frame_painter[func])
+            res = frame_painter[func](user);
       }
 
-      let norm = GetV(0, 0), pixel = GetV(1, 0);
+      if (res === undefined)
+         res = vertical ? getRect().height : 0;
+
+      let norm = getV(0, 0), pixel = getV(1, 0);
 
       res += sign*pixel;
 
       if (norm)
-         res += sign * (vertical ? rect.height : rect.width) * norm;
+         res += sign * (vertical ? getRect().height : getRect().width) * norm;
 
-      return res;
+      return Math.round(res);
    }
 
 
    /** @summary Calculates pad position for RPadPos values
      * @param {object} pos - instance of RPadPos
-     * @param {object} onframe - if drawing will be performed inside frame, frame painter */
-   RPadPainter.prototype.getCoordinate = function(pos, onframe) {
+     * @param {object} frame_painter - if drawing will be performed inside frame, frame painter */
+   RPadPainter.prototype.getCoordinate = function(pos, frame_painter) {
       return {
-         x: this.getPadLength(false, pos.fHoriz, onframe),
-         y: this.getPadLength(true, pos.fVert, onframe)
+         x: this.getPadLength(false, pos.fHoriz, frame_painter),
+         y: this.getPadLength(true, pos.fVert, frame_painter)
       }
    }
 
@@ -4403,7 +4537,7 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
    function drawPadSnapshot(divid, snap /*, opt*/) {
       let painter = new RCanvasPainter(divid, null);
       painter.normal_canvas = false;
-      painter.batch_mode = true;
+      painter.batch_mode = JSROOT.batch_mode;
       return painter.redrawPadSnap(snap).then(() => {
          painter.showPadButtons();
          return painter;

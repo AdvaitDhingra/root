@@ -111,6 +111,12 @@ public:
   RooAbsArg *find(const char *name) const ;
   RooAbsArg *find(const RooAbsArg&) const ;
 
+  /// Find object by name in the collection
+  TObject* FindObject(const char* name) const { return find(name); }
+
+  /// Find object in the collection, Note: matching by object name, like the find() method
+  TObject* FindObject(const TObject* obj) const { auto arg = dynamic_cast<const RooAbsArg*>(obj); return (arg) ? find(*arg) : nullptr; }
+
   /// Check if collection contains an argument with the same name as var.
   /// To check for a specific instance, use containsInstance().
   Bool_t contains(const RooAbsArg& var) const { 
@@ -283,6 +289,9 @@ protected:
 
   void makeStructureTag() ;
   void makeTypedStructureTag() ;
+
+  /// Determine whether it's possible to add a given RooAbsArg to the collection or not.
+  virtual bool canBeAdded(const RooAbsArg& arg, bool silent) const = 0;
 
 private:
   std::unique_ptr<LegacyIterator_t> makeLegacyIterator (bool forward = true) const;
