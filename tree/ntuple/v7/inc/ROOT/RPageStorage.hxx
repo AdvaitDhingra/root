@@ -130,6 +130,8 @@ public:
 
    /// Returns an empty metrics.  Page storage implementations usually have their own metrics.
    virtual RNTupleMetrics &GetMetrics();
+   /// Returns the NTuple name.
+   const std::string &GetNTupleName() const { return fNTupleName; }
 
    void SetTaskScheduler(RTaskScheduler *taskScheduler) { fTaskScheduler = taskScheduler; }
 };
@@ -168,6 +170,8 @@ protected:
 
    virtual void CreateImpl(const RNTupleModel &model) = 0;
    virtual RClusterDescriptor::RLocator CommitPageImpl(ColumnHandle_t columnHandle, const RPage &page) = 0;
+   virtual RClusterDescriptor::RLocator CommitSealedPageImpl(DescriptorId_t columnId,
+                                                             const RPageStorage::RSealedPage &sealedPage) = 0;
    virtual RClusterDescriptor::RLocator CommitClusterImpl(NTupleSize_t nEntries) = 0;
    virtual void CommitDatasetImpl() = 0;
 
@@ -191,6 +195,8 @@ public:
    static std::unique_ptr<RPageSink> Create(std::string_view ntupleName, std::string_view location,
                                             const RNTupleWriteOptions &options = RNTupleWriteOptions());
    EPageStorageType GetType() final { return EPageStorageType::kSink; }
+   /// Returns the sink's write options.
+   const RNTupleWriteOptions &GetWriteOptions() const { return fOptions; }
 
    ColumnHandle_t AddColumn(DescriptorId_t fieldId, const RColumn &column) final;
    void DropColumn(ColumnHandle_t /*columnHandle*/) final {}
@@ -201,6 +207,9 @@ public:
    void Create(RNTupleModel &model);
    /// Write a page to the storage. The column must have been added before.
    void CommitPage(ColumnHandle_t columnHandle, const RPage &page);
+   /// Write a preprocessed page to storage. The column must have been added before.
+   /// TODO(jblomer): allow for vector commit of sealed pages
+   void CommitSealedPage(DescriptorId_t columnId, const RPageStorage::RSealedPage &sealedPage);
    /// Finalize the current cluster and create a new one for the following data.
    void CommitCluster(NTupleSize_t nEntries);
    /// Finalize the current cluster and the entrire data set.
@@ -263,8 +272,9 @@ public:
 
    EPageStorageType GetType() final { return EPageStorageType::kSource; }
    const RNTupleDescriptor &GetDescriptor() const { return fDescriptor; }
-   ColumnHandle_t AddColumn(DescriptorId_t fieldId, const RColumn &column) final;
-   void DropColumn(ColumnHandle_t columnHandle) final;
+   const RNTupleReadOptions &GetReadOptions() const { return fOptions; }
+   ColumnHandle_t AddColumn(DescriptorId_t fieldId, const RColumn &column) override;
+   void DropColumn(ColumnHandle_t columnHandle) override;
 
    /// Open the physical storage container for the tree
    void Attach() { fDescriptor = AttachImpl(); }
@@ -276,6 +286,13 @@ public:
    virtual RPage PopulatePage(ColumnHandle_t columnHandle, NTupleSize_t globalIndex) = 0;
    /// Another version of PopulatePage that allows to specify cluster-relative indexes
    virtual RPage PopulatePage(ColumnHandle_t columnHandle, const RClusterIndex &clusterIndex) = 0;
+
+   /// Read the packed and compressed bytes of a page into the memory buffer provided by selaedPage. The sealed page
+   /// can be used subsequently in a call to RPageSink::CommitSealedPage.
+   /// The fSize and fNElements member of the sealedPage parameters are always set. If sealedPage.fBuffer is nullptr,
+   /// no data will be copied but the returned size information can be used by the caller to allocate a large enough
+   /// buffer and call LoadSealedPage again.
+   virtual void LoadSealedPage(DescriptorId_t columnId, const RClusterIndex &clusterIndex, RSealedPage &sealedPage) = 0;
 
    /// Populates all the pages of the given cluster id and columns; it is possible that some columns do not
    /// contain any pages.  The pages source may load more columns than the minimal necessary set from `columns`.

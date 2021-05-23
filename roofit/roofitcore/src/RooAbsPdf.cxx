@@ -187,6 +187,7 @@ called for each data event.
 #include <iostream>
 #include <string>
 #include <cmath>
+#include <stdexcept>
 
 using namespace std;
 
@@ -791,7 +792,8 @@ Double_t RooAbsPdf::extendedTerm(Double_t observed, const RooArgSet* nset) const
   if(expected < 0) {
     coutE(InputArguments) << fName << ": calculated negative expected events: " << expected
          << endl;
-    return 0;
+    logEvalError("extendedTerm #expected events is <0 return a  NaN");
+    return TMath::QuietNaN();
   }
 
 
@@ -801,9 +803,9 @@ Double_t RooAbsPdf::extendedTerm(Double_t observed, const RooArgSet* nset) const
   }
 
   // Check for errors in Nexpected
-  if (expected<0 || TMath::IsNaN(expected)) {
-    logEvalError("extendedTerm #expected events is <0 or NaN") ;
-    return 0 ;
+  if (TMath::IsNaN(expected)) {
+    logEvalError("extendedTerm #expected events is a NaN") ;
+    return TMath::QuietNaN() ;
   }
 
   // calculate and return the negative log-likelihood of the Poisson
@@ -1099,40 +1101,35 @@ RooAbsReal* RooAbsPdf::createNLL(RooAbsData& data, const RooLinkedList& cmdList)
   RooAbsReal::setEvalErrorLoggingMode(RooAbsReal::CollectErrors) ;
   RooAbsReal* nll ;
   string baseName = Form("nll_%s_%s",GetName(),data.GetName()) ;
+  RooAbsTestStatistic::Configuration cfg;
+  cfg.addCoefRangeName = addCoefRangeName ? addCoefRangeName : "";
+  cfg.nCPU = numcpu;
+  cfg.interleave = interl;
+  cfg.verbose = verbose;
+  cfg.splitCutRange = static_cast<bool>(splitr);
+  cfg.cloneInputData = static_cast<bool>(cloneData);
+  cfg.integrateOverBinsPrecision = pc.getDouble("IntegrateBins");
+  cfg.binnedL = false;
   if (!rangeName || strchr(rangeName,',')==0) {
     // Simple case: default range, or single restricted range
     //cout<<"FK: Data test 1: "<<data.sumEntries()<<endl;
 
-    RooAbsTestStatistic::Configuration cfg;
     cfg.rangeName = rangeName ? rangeName : "";
-    cfg.addCoefRangeName = addCoefRangeName ? addCoefRangeName : "";
-    cfg.nCPU = numcpu;
-    cfg.interleave = interl;
-    cfg.verbose = verbose;
-    cfg.splitCutRange = static_cast<bool>(splitr);
-    cfg.cloneInputData = static_cast<bool>(cloneData);
-    cfg.integrateOverBinsPrecision = pc.getDouble("IntegrateBins");
-    cfg.binnedL = false;
-    auto theNLL = new RooNLLVar(baseName.c_str(),"-log(likelihood)",*this,data,projDeps,std::move(cfg), ext);
+    auto theNLL = new RooNLLVar(baseName.c_str(),"-log(likelihood)",*this,data,projDeps,cfg, ext);
     theNLL->batchMode(pc.getInt("BatchMode"));
     nll = theNLL;
   } else {
     // Composite case: multiple ranges
     RooArgList nllList ;
     auto tokens = RooHelpers::tokenise(rangeName, ",");
+    if (RooHelpers::checkIfRangesOverlap(*this, data, tokens)) {
+      throw std::runtime_error(
+              std::string("Error in RooAbsPdf::createNLL! The ranges ") + rangeName + " are overlapping!");
+    }
     for (const auto& token : tokens) {
-      RooAbsTestStatistic::Configuration cfg;
       cfg.rangeName = token;
-      cfg.addCoefRangeName = addCoefRangeName ? addCoefRangeName : "";
-      cfg.nCPU = numcpu;
-      cfg.interleave = interl;
-      cfg.verbose = verbose;
-      cfg.splitCutRange = static_cast<bool>(splitr);
-      cfg.cloneInputData = static_cast<bool>(cloneData);
-      cfg.integrateOverBinsPrecision = pc.getDouble("IntegrateBins");
-      cfg.binnedL = false;
-      auto nllComp = new RooNLLVar(Form("%s_%s",baseName.c_str(),token.c_str()),"-log(likelihood)",
-                                   *this,data,projDeps,std::move(cfg),ext);
+      auto nllComp = new RooNLLVar((baseName + "_" + token).c_str(),"-log(likelihood)",
+                                   *this,data,projDeps,cfg,ext);
       nllComp->batchMode(pc.getInt("BatchMode"));
       nllList.add(*nllComp) ;
     }
@@ -1411,7 +1408,7 @@ int RooAbsPdf::calculateSumW2CorrectedCovMatrix(Minimizer &minimizer, RooAbsReal
 ///                                                 \see RooBinSamplingPdf
 ///
 /// <tr><th><th> Options to control flow of fit procedure
-/// <tr><td> `Minimizer(type,algo)`   <td>  Choose minimization package and algorithm to use. Default is MINUIT/MIGRAD through the RooMinimizer interface,
+/// <tr><td> `Minimizer("<type>", "<algo>")`   <td>  Choose minimization package and optionally the algorithm to use. Default is MINUIT/MIGRAD through the RooMinimizer interface,
 ///                                       but others can be specified (through RooMinimizer interface). Select OldMinuit to use MINUIT through the old RooMinuit interface
 ///   <table>
 ///   <tr><th> Type         <th> Algorithm
@@ -3248,9 +3245,9 @@ RooPlot* RooAbsPdf::paramOn(RooPlot* frame, const RooCmdArg& arg1, const RooCmdA
   // Select the pdf-specific commands
   RooCmdConfig pc(Form("RooAbsPdf::paramOn(%s)",GetName())) ;
   pc.defineString("label","Label",0,"") ;
-  pc.defineDouble("xmin","Layout",0,0.50) ;
-  pc.defineDouble("xmax","Layout",1,0.99) ;
-  pc.defineInt("ymaxi","Layout",0,Int_t(0.95*10000)) ;
+  pc.defineDouble("xmin","Layout",0,0.65) ;
+  pc.defineDouble("xmax","Layout",1,0.9) ;
+  pc.defineInt("ymaxi","Layout",0,Int_t(0.9*10000)) ;
   pc.defineInt("showc","ShowConstants",0,0) ;
   pc.defineObject("params","Parameters",0,0) ;
   pc.defineString("formatStr","Format",0,"NELU") ;
@@ -3352,11 +3349,10 @@ RooPlot* RooAbsPdf::paramOn(RooPlot* frame, const RooArgSet& params, Bool_t show
   if(!box) return 0;
   box->SetName(Form("%s_paramBox",GetName())) ;
   box->SetFillColor(0);
-  box->SetBorderSize(1);
+  box->SetBorderSize(0);
   box->SetTextAlign(12);
   box->SetTextSize(0.04F);
-  box->SetFillStyle(1001);
-  box->SetFillColor(0);
+  box->SetFillStyle(0);
 
   for (const auto param : params) {
     auto var = static_cast<const RooRealVar*>(param);

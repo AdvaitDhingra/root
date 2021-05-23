@@ -114,10 +114,24 @@ RooAbsCollection::RooAbsCollection(const RooAbsCollection& other, const char *na
   _list.reserve(other._list.size());
 
   for (auto item : other._list) {
-    add(*item);
+    insert(item);
   }
 }
 
+
+////////////////////////////////////////////////////////////////////////////////
+/// Move constructor.
+
+RooAbsCollection::RooAbsCollection(RooAbsCollection&& other) :
+  TObject(other),
+  RooPrintable(other),
+  _list(std::move(other._list)),
+  _ownCont(other._ownCont),
+  _name(std::move(other._name)),
+  _allRRV(other._allRRV),
+  _sizeThresholdForMapSearch(other._sizeThresholdForMapSearch)
+{
+}
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -388,6 +402,8 @@ void RooAbsCollection::assignFast(const RooAbsCollection& other, Bool_t setValDi
 
 Bool_t RooAbsCollection::addOwned(RooAbsArg& var, Bool_t silent)
 {
+  if(!canBeAdded(var, silent)) return false;
+
   // check that we own our variables or else are empty
   if(!_ownCont && (getSize() > 0) && !silent) {
     coutE(ObjectHandling) << ClassName() << "::" << GetName() << "::addOwned: can only add to an owned list" << endl;
@@ -411,6 +427,8 @@ Bool_t RooAbsCollection::addOwned(RooAbsArg& var, Bool_t silent)
 
 RooAbsArg *RooAbsCollection::addClone(const RooAbsArg& var, Bool_t silent)
 {
+  if(!canBeAdded(var, silent)) return nullptr;
+
   // check that we own our variables or else are empty
   if(!_ownCont && (getSize() > 0) && !silent) {
     coutE(ObjectHandling) << ClassName() << "::" << GetName() << "::addClone: can only add to an owned list" << endl;
@@ -436,6 +454,8 @@ RooAbsArg *RooAbsCollection::addClone(const RooAbsArg& var, Bool_t silent)
 
 Bool_t RooAbsCollection::add(const RooAbsArg& var, Bool_t silent)
 {
+  if(!canBeAdded(var, silent)) return false;
+
   // check that this isn't a copy of a list
   if(_ownCont && !silent) {
     coutE(ObjectHandling) << ClassName() << "::" << GetName() << "::add: cannot add to an owned list" << endl;
@@ -1529,4 +1549,16 @@ RooAbsArg* RooAbsCollection::tryFastFind(const TNamed* namePtr) const {
   }
 
   return nullptr;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+/// Check that all entries where the collections overlap have the same name.
+bool RooAbsCollection::hasSameLayout(const RooAbsCollection& other) const {
+  for (unsigned int i=0; i < std::min(_list.size(), other.size()); ++i) {
+    if (_list[i]->namePtr() != other._list[i]->namePtr())
+      return false;
+  }
+
+  return true;
 }

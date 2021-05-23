@@ -104,6 +104,12 @@ ROOT_LINKER_LIBRARY(Cling
         $<TARGET_OBJECTS:MetaCling>
         LIBRARIES ${CLING_LIBRARIES} ${LINK_LIBS} ${CLING_PLUGIN_LINK_LIBS})
 
+string(TOUPPER "${LLVM_BUILD_TYPE}" THE_BUILD_TYPE)
+if("${THE_BUILD_TYPE}" STREQUAL DEBUG OR "${THE_BUILD_TYPE}" STREQUAL RELWITHDEBINFO)
+  # When these two link at the same time, they can exhaust the RAM on many machines, since they both link against llvm.
+  add_dependencies(Cling rootcling_stage1)
+endif()
+
 if(MSVC)
   set_target_properties(Cling PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
   set(cling_exports ${cling_exports}
@@ -153,7 +159,9 @@ if(MSVC)
       ??6?$basic_ostream@DU?$char_traits@D@std@@@std@@QEAAAEAV01@N@Z
       ??6?$basic_ostream@DU?$char_traits@D@std@@@std@@QEAAAEAV01@PEBX@Z
       ??6?$basic_ostream@DU?$char_traits@D@std@@@std@@QEAAAEAV01@P6AAEAV01@AEAV01@@Z@Z
+      ??$?6U?$char_traits@D@std@@@std@@YAAEAV?$basic_ostream@DU?$char_traits@D@std@@@0@AEAV10@D@Z
       ??$?6U?$char_traits@D@std@@@std@@YAAEAV?$basic_ostream@DU?$char_traits@D@std@@@0@AEAV10@PEBD@Z
+      ??$endl@DU?$char_traits@D@std@@@std@@YAAEAV?$basic_ostream@DU?$char_traits@D@std@@@0@AEAV10@@Z
       ?setValueNoAlloc@internal@runtime@cling@@YAXPEAX00D@Z
       ?setValueNoAlloc@internal@runtime@cling@@YAXPEAX00DM@Z
       ?setValueNoAlloc@internal@runtime@cling@@YAXPEAX00DN@Z
