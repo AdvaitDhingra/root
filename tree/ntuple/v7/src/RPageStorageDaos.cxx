@@ -108,13 +108,13 @@ ROOT::Experimental::Detail::RDaosNTupleAnchor::Deserialize(const void *buffer)
 ROOT::Experimental::Detail::RPageSinkDaos::RPageSinkDaos(std::string_view ntupleName, std::string_view uri,
    const RNTupleWriteOptions &options)
    : RPageSink(ntupleName, options)
-   , fMetrics("RPageSinkDaos")
    , fPageAllocator(std::make_unique<RPageAllocatorHeap>())
    , fURI(uri)
 {
    R__LOG_WARNING(NTupleLog()) << "The DAOS backend is experimental and still under development. " <<
       "Do not store real data with this version of RNTuple!";
    fCompressor = std::make_unique<RNTupleCompressor>();
+   EnableDefaultMetrics("RPageSinkDaos");
 }
 
 
@@ -143,28 +143,36 @@ ROOT::Experimental::RClusterDescriptor::RLocator
 ROOT::Experimental::Detail::RPageSinkDaos::CommitPageImpl(ColumnHandle_t columnHandle, const RPage &page)
 {
    auto element = columnHandle.fColumn->GetElement();
-   auto sealedPage = SealPage(page, *element, fOptions.GetCompression());
+   RPageStorage::RSealedPage sealedPage;
+   {
+      RNTupleAtomicTimer timer(fCounters->fTimeWallZip, fCounters->fTimeCpuZip);
+      sealedPage = SealPage(page, *element, fOptions.GetCompression());
+   }
 
-   auto offsetData = std::get<0>(fDaosContainer->WriteObject(sealedPage.fBuffer,
-                                                             sealedPage.fSize,
-                                                             kDistributionKey,
-                                                             kAttributeKey)).lo;
-
-   RClusterDescriptor::RLocator result;
-   result.fPosition = offsetData;
-   result.fBytesOnStorage = sealedPage.fSize;
-   return result;
+   fCounters->fSzZip.Add(page.GetSize());
+   return CommitSealedPageImpl(columnHandle.fId, sealedPage);
 }
 
 
 ROOT::Experimental::RClusterDescriptor::RLocator
 ROOT::Experimental::Detail::RPageSinkDaos::CommitSealedPageImpl(
-   DescriptorId_t columnId, const RPageStorage::RSealedPage &sealedPage)
+   DescriptorId_t /*columnId*/, const RPageStorage::RSealedPage &sealedPage)
 {
-   /// TODO(jalopezg): this will be addressed in a different pull request.
-   (void)columnId;
-   (void)sealedPage;
-   return {};
+   std::uint64_t offsetData;
+   {
+      RNTupleAtomicTimer timer(fCounters->fTimeWallWrite, fCounters->fTimeCpuWrite);
+      offsetData = std::get<0>(fDaosContainer->WriteObject(sealedPage.fBuffer,
+                                                           sealedPage.fSize,
+                                                           kDistributionKey,
+                                                           kAttributeKey)).lo;
+   }
+
+   RClusterDescriptor::RLocator result;
+   result.fPosition = offsetData;
+   result.fBytesOnStorage = sealedPage.fSize;
+   fCounters->fNPageCommitted.Inc();
+   fCounters->fSzWritePayload.Add(sealedPage.fSize);
+   return result;
 }
 
 
@@ -256,28 +264,13 @@ void ROOT::Experimental::Detail::RPageAllocatorDaos::DeletePage(const RPage& pag
 ROOT::Experimental::Detail::RPageSourceDaos::RPageSourceDaos(std::string_view ntupleName, std::string_view uri,
    const RNTupleReadOptions &options)
    : RPageSource(ntupleName, options)
-   , fMetrics("RPageSourceDaos")
    , fPageAllocator(std::make_unique<RPageAllocatorDaos>())
    , fPagePool(std::make_shared<RPagePool>())
    , fURI(uri)
    , fClusterPool(std::make_unique<RClusterPool>(*this))
 {
    fDecompressor = std::make_unique<RNTupleDecompressor>();
-   fCounters = std::unique_ptr<RCounters>(new RCounters{
-      *fMetrics.MakeCounter<RNTupleAtomicCounter*>("nReadV", "", "number of vector read requests"),
-      *fMetrics.MakeCounter<RNTupleAtomicCounter*>("nRead", "", "number of byte ranges read"),
-      *fMetrics.MakeCounter<RNTupleAtomicCounter*>("szReadPayload", "B", "volume read from container"),
-      *fMetrics.MakeCounter<RNTupleAtomicCounter*> ("szUnzip", "B", "volume after unzipping"),
-      *fMetrics.MakeCounter<RNTupleAtomicCounter*>("nClusterLoaded", "",
-                                                   "number of partial clusters preloaded from storage"),
-      *fMetrics.MakeCounter<RNTupleAtomicCounter*> ("nPageLoaded", "", "number of pages loaded from storage"),
-      *fMetrics.MakeCounter<RNTupleAtomicCounter*> ("nPagePopulated", "", "number of populated pages"),
-      *fMetrics.MakeCounter<RNTupleAtomicCounter*>("timeWallRead", "ns", "wall clock time spent reading"),
-      *fMetrics.MakeCounter<RNTupleAtomicCounter*> ("timeWallUnzip", "ns", "wall clock time spent decompressing"),
-      *fMetrics.MakeCounter<RNTupleTickCounter<RNTupleAtomicCounter>*>("timeCpuRead", "ns", "CPU time spent reading"),
-      *fMetrics.MakeCounter<RNTupleTickCounter<RNTupleAtomicCounter>*> ("timeCpuUnzip", "ns",
-                                                                       "CPU time spent decompressing")
-   });
+   EnableDefaultMetrics("RPageSourceDaos");
 
    auto args = ParseDaosURI(uri);
    auto pool = std::make_shared<RDaosPool>(args.fPoolUuid, args.fSvcReplicas);
@@ -316,10 +309,19 @@ ROOT::Experimental::RNTupleDescriptor ROOT::Experimental::Detail::RPageSourceDao
 void ROOT::Experimental::Detail::RPageSourceDaos::LoadSealedPage(
    DescriptorId_t columnId, const RClusterIndex &clusterIndex, RSealedPage &sealedPage)
 {
-   /// TODO(jalopezg): this will be addressed in a different pull request.
-   (void)columnId;
-   (void)clusterIndex;
-   (void)sealedPage;
+   const auto clusterId = clusterIndex.GetClusterId();
+   const auto &clusterDescriptor = fDescriptor.GetClusterDescriptor(clusterId);
+
+   auto pageInfo = clusterDescriptor.GetPageRange(columnId).Find(clusterIndex.GetIndex());
+
+   const auto bytesOnStorage = pageInfo.fLocator.fBytesOnStorage;
+   sealedPage.fSize = bytesOnStorage;
+   sealedPage.fNElements = pageInfo.fNElements;
+   if (sealedPage.fBuffer) {
+      fDaosContainer->ReadObject({static_cast<decltype(daos_obj_id_t::lo)>(pageInfo.fLocator.fPosition), 0},
+                                 const_cast<void *>(sealedPage.fBuffer), bytesOnStorage,
+                                 kDistributionKey, kAttributeKey);
+   }
 }
 
 ROOT::Experimental::Detail::RPage ROOT::Experimental::Detail::RPageSourceDaos::PopulatePageFromCluster(
@@ -327,22 +329,8 @@ ROOT::Experimental::Detail::RPage ROOT::Experimental::Detail::RPageSourceDaos::P
 {
    const auto columnId = columnHandle.fId;
    const auto clusterId = clusterDescriptor.GetId();
-   const auto &pageRange = clusterDescriptor.GetPageRange(columnId);
 
-   // TODO(jblomer): binary search
-   RClusterDescriptor::RPageRange::RPageInfo pageInfo;
-   decltype(idxInCluster) firstInPage = 0;
-   NTupleSize_t pageNo = 0;
-   for (const auto &pi : pageRange.fPageInfos) {
-      if (firstInPage + pi.fNElements > idxInCluster) {
-         pageInfo = pi;
-         break;
-      }
-      firstInPage += pi.fNElements;
-      ++pageNo;
-   }
-   R__ASSERT(firstInPage <= idxInCluster);
-   R__ASSERT((firstInPage + pageInfo.fNElements) > idxInCluster);
+   auto pageInfo = clusterDescriptor.GetPageRange(columnId).Find(idxInCluster);
 
    const auto element = columnHandle.fColumn->GetElement();
    const auto elementSize = element->GetSize();
@@ -368,7 +356,7 @@ ROOT::Experimental::Detail::RPage ROOT::Experimental::Detail::RPageSourceDaos::P
       if (!cachedPage.IsNull())
          return cachedPage;
 
-      ROnDiskPage::Key key(columnId, pageNo);
+      ROnDiskPage::Key key(columnId, pageInfo.fPageNo);
       auto onDiskPage = fCurrentCluster->GetOnDiskPage(key);
       R__ASSERT(onDiskPage && (bytesOnStorage == onDiskPage->GetSize()));
       sealedPageBuffer = onDiskPage->GetAddress();
@@ -383,7 +371,7 @@ ROOT::Experimental::Detail::RPage ROOT::Experimental::Detail::RPageSourceDaos::P
 
    const auto indexOffset = clusterDescriptor.GetColumnRange(columnId).fFirstElementIndex;
    auto newPage = fPageAllocator->NewPage(columnId, pageBuffer.release(), elementSize, pageInfo.fNElements);
-   newPage.SetWindow(indexOffset + firstInPage, RPage::RClusterInfo(clusterId, indexOffset));
+   newPage.SetWindow(indexOffset + pageInfo.fFirstInPage, RPage::RClusterInfo(clusterId, indexOffset));
    fPagePool->RegisterPage(newPage,
       RPageDeleter([](const RPage &page, void * /*userData*/)
       {

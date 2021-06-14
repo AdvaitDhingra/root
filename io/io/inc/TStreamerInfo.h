@@ -21,11 +21,6 @@
 
 #include "TObjArray.h"
 
-/**
-\class TStreamerInfo
-\ingroup IO
-Describe Streamer information for one class version
-*/
 
 class TFile;
 class TClass;
@@ -97,7 +92,7 @@ private:
    Int_t             fSize;              ///<!size of the persistent class
    Int_t             fNdata;             ///<!number of optimized elements
    Int_t             fNfulldata;         ///<!number of elements
-   Int_t             fNslots;            ///<!total numbrer of slots in fComp.
+   Int_t             fNslots;            ///<!total number of slots in fComp.
    TCompInfo        *fComp;              ///<![fNslots with less than fElements->GetEntries()*1.5 used] Compiled info
    TCompInfo       **fCompOpt;           ///<![fNdata]
    TCompInfo       **fCompFull;          ///<![fElements->GetEntries()]

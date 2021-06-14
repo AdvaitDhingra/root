@@ -17,6 +17,7 @@
 #define ROOT7_RPageStorage
 
 #include <ROOT/RNTupleDescriptor.hxx>
+#include <ROOT/RNTupleMetrics.hxx>
 #include <ROOT/RNTupleOptions.hxx>
 #include <ROOT/RNTupleUtil.hxx>
 #include <ROOT/RPage.hxx>
@@ -44,7 +45,6 @@ class RNTupleCompressor;
 class RNTupleDecompressor;
 class RPagePool;
 class RFieldBase;
-class RNTupleMetrics;
 
 enum class EPageStorageType {
    kSink,
@@ -85,6 +85,7 @@ public:
       std::uint32_t fNElements = 0;
 
       RSealedPage() = default;
+      RSealedPage(const void *b, std::uint32_t s, std::uint32_t n) : fBuffer(b), fSize(s), fNElements(n) {}
       RSealedPage(const RSealedPage &other) = delete;
       RSealedPage& operator =(const RSealedPage &other) = delete;
       RSealedPage(RSealedPage &&other) = default;
@@ -112,7 +113,7 @@ public:
 
       /// Returns true for a valid column handle; fColumn and fId should always either both
       /// be valid or both be invalid.
-      operator bool() const { return fId != kInvalidDescriptorId && fColumn; }
+      explicit operator bool() const { return fId != kInvalidDescriptorId && fColumn; }
    };
    /// The column handle identifies a column with the current open page storage
    using ColumnHandle_t = RColumnHandle;
@@ -128,8 +129,9 @@ public:
    /// of allocating pages.
    virtual void ReleasePage(RPage &page) = 0;
 
-   /// Returns an empty metrics.  Page storage implementations usually have their own metrics.
-   virtual RNTupleMetrics &GetMetrics();
+   /// Page storage implementations have their own metrics. The RPageSink and RPageSource classes provide
+   /// a default set of metrics.
+   virtual RNTupleMetrics &GetMetrics() = 0;
    /// Returns the NTuple name.
    const std::string &GetNTupleName() const { return fNTupleName; }
 
@@ -149,6 +151,19 @@ up to the given entry number are committed.
 // clang-format on
 class RPageSink : public RPageStorage {
 protected:
+   /// Default I/O performance counters that get registered in fMetrics
+   struct RCounters {
+      RNTupleAtomicCounter &fNPageCommitted;
+      RNTupleAtomicCounter &fSzWritePayload;
+      RNTupleAtomicCounter &fSzZip;
+      RNTupleAtomicCounter &fTimeWallWrite;
+      RNTupleAtomicCounter &fTimeWallZip;
+      RNTupleTickCounter<RNTupleAtomicCounter> &fTimeCpuWrite;
+      RNTupleTickCounter<RNTupleAtomicCounter> &fTimeCpuZip;
+   };
+   std::unique_ptr<RCounters> fCounters;
+   RNTupleMetrics fMetrics;
+
    RNTupleWriteOptions fOptions;
 
    /// Helper to zip pages and header/footer; includes a 16MB (kMAXZIPBUF) zip buffer.
@@ -181,6 +196,21 @@ protected:
    /// of fCompressor.  Thus, the buffer pointed to by the RSealedPage should never be freed.
    /// Usage of this method requires construction of fCompressor.
    RSealedPage SealPage(const RPage &page, const RColumnElementBase &element, int compressionSetting);
+
+   /// Seal a page using the provided buffer.
+   static RSealedPage SealPage(const RPage &page, const RColumnElementBase &element,
+      int compressionSetting, void *buf);
+
+   /// Enables the default set of metrics provided by RPageSink. `prefix` will be used as the prefix for
+   /// the counters registered in the internal RNTupleMetrics object.
+   /// This set of counters can be extended by a subclass by calling `fMetrics.MakeCounter<...>()`.
+   ///
+   /// A subclass using the default set of metrics is always responsible for updating the counters
+   /// appropriately, e.g. `fCounters->fNPageCommited.Inc()`
+   ///
+   /// Alternatively, a subclass might provide its own RNTupleMetrics object by overriding the
+   /// GetMetrics() member function.
+   void EnableDefaultMetrics(const std::string &prefix);
 
 public:
    RPageSink(std::string_view ntupleName, const RNTupleWriteOptions &options);
@@ -218,6 +248,9 @@ public:
    /// Get a new, empty page for the given column that can be filled with up to nElements.  If nElements is zero,
    /// the page sink picks an appropriate size.
    virtual RPage ReservePage(ColumnHandle_t columnHandle, std::size_t nElements = 0) = 0;
+
+   /// Returns the default metrics object.  Subclasses might alternatively provide their own metrics object by overriding this.
+   virtual RNTupleMetrics &GetMetrics() override { return fMetrics; };
 };
 
 // clang-format off
@@ -236,6 +269,30 @@ public:
    using ColumnSet_t = std::unordered_set<DescriptorId_t>;
 
 protected:
+   /// Default I/O performance counters that get registered in fMetrics
+   struct RCounters {
+      RNTupleAtomicCounter &fNReadV;
+      RNTupleAtomicCounter &fNRead;
+      RNTupleAtomicCounter &fSzReadPayload;
+      RNTupleAtomicCounter &fSzReadOverhead;
+      RNTupleAtomicCounter &fSzUnzip;
+      RNTupleAtomicCounter &fNClusterLoaded;
+      RNTupleAtomicCounter &fNPageLoaded;
+      RNTupleAtomicCounter &fNPagePopulated;
+      RNTupleAtomicCounter &fTimeWallRead;
+      RNTupleAtomicCounter &fTimeWallUnzip;
+      RNTupleTickCounter<RNTupleAtomicCounter> &fTimeCpuRead;
+      RNTupleTickCounter<RNTupleAtomicCounter> &fTimeCpuUnzip;
+      RNTupleCalcPerf &fBandwidthReadUncompressed;
+      RNTupleCalcPerf &fBandwidthReadCompressed;
+      RNTupleCalcPerf &fBandwidthUnzip;
+      RNTupleCalcPerf &fFractionReadOverhead;
+      RNTupleCalcPerf &fCompressionRatio;
+   };
+   std::unique_ptr<RCounters> fCounters;
+   /// Wraps the I/O counters and is observed by the RNTupleReader metrics
+   RNTupleMetrics fMetrics;
+
    RNTupleReadOptions fOptions;
    RNTupleDescriptor fDescriptor;
    /// The active columns are implicitly defined by the model fields or views
@@ -256,6 +313,14 @@ protected:
    /// The optimization of directly mapping pages is left to the concrete page source implementations.
    /// Usage of this method requires construction of fDecompressor.
    std::unique_ptr<unsigned char []> UnsealPage(const RSealedPage &sealedPage, const RColumnElementBase &element);
+
+   /// Enables the default set of metrics provided by RPageSource. `prefix` will be used as the prefix for
+   /// the counters registered in the internal RNTupleMetrics object.
+   /// A subclass using the default set of metrics is responsible for updating the counters
+   /// appropriately, e.g. `fCounters->fNRead.Inc()`
+   /// Alternatively, a subclass might provide its own RNTupleMetrics object by overriding the
+   /// GetMetrics() member function.
+   void EnableDefaultMetrics(const std::string &prefix);
 
 public:
    RPageSource(std::string_view ntupleName, const RNTupleReadOptions &fOptions);
@@ -309,6 +374,9 @@ public:
    /// actual implementation will only run if a task scheduler is set. In practice, a task scheduler is set
    /// if implicit multi-threading is turned on.
    void UnzipCluster(RCluster *cluster);
+
+   /// Returns the default metrics object.  Subclasses might alternatively override the method and provide their own metrics object.
+   virtual RNTupleMetrics &GetMetrics() override { return fMetrics; };
 };
 
 } // namespace Detail

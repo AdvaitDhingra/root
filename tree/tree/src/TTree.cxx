@@ -3256,8 +3256,8 @@ TTree* TTree::CloneTree(Long64_t nentries /* = -1 */, Option_t* option /* = "" *
 
 ////////////////////////////////////////////////////////////////////////////////
 /// Set branch addresses of passed tree equal to ours.
-/// If undo is true, reset the branch address instead of copying them.
-/// This insures 'separation' of a cloned tree from its original
+/// If undo is true, reset the branch addresses instead of copying them.
+/// This ensures 'separation' of a cloned tree from its original.
 
 void TTree::CopyAddresses(TTree* tree, Bool_t undo)
 {
@@ -3361,6 +3361,13 @@ void TTree::CopyAddresses(TTree* tree, Bool_t undo)
             tree->SetBranchAddress(branch->GetName(), (void*) branch->GetAddress());
             TBranch* br = tree->GetBranch(branch->GetName());
             if (br) {
+               if (br->IsA() != branch->IsA()) {
+                  Error(
+                     "CopyAddresses",
+                     "Branch kind mismatch between input tree '%s' and output tree '%s' for branch '%s': '%s' vs '%s'",
+                     tree->GetName(), br->GetTree()->GetName(), br->GetName(), branch->IsA()->GetName(),
+                     br->IsA()->GetName());
+               }
                // The copy does not own any object allocated by SetAddress().
                // FIXME: We do too much here, br may not be a top-level branch.
                if (br->InheritsFrom(TBranchElement::Class())) {

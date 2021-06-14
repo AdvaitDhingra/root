@@ -43,10 +43,10 @@ nll = model.createNLL(data)
 # -------------------------------------------------------------------------------
 
 # Create MINUIT interface object
-m = ROOT.RooMinuit(nll)
+m = ROOT.RooMinimizer(nll)
 
 # Activate verbose logging of MINUIT parameter space stepping
-m.setVerbose(ROOT.kTRUE)
+m.setVerbose(True)
 
 # Call MIGRAD to minimize the likelihood
 m.migrad()
@@ -56,7 +56,7 @@ m.migrad()
 model.getParameters(ROOT.RooArgSet(x)).Print("s")
 
 # Disable verbose logging
-m.setVerbose(ROOT.kFALSE)
+m.setVerbose(False)
 
 # Run HESSE to calculate errors from d2L/dp2
 m.hesse()
@@ -84,7 +84,7 @@ r = m.save()
 
 # Make contour plot of mx vs sx at 1,2, sigma
 frame = m.contour(frac, sigma_g2, 1, 2, 3)
-frame.SetTitle("RooMinuit contour plot")
+frame.SetTitle("Contour plot")
 
 # Print the fit result snapshot
 r.Print("v")
@@ -102,7 +102,7 @@ m.hesse()
 frac.Print()
 
 # Now fix sigma_g2
-sigma_g2.setConstant(ROOT.kTRUE)
+sigma_g2.setConstant(True)
 
 # Rerun MIGRAD,HESSE
 m.migrad()

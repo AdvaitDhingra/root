@@ -43,7 +43,7 @@ data = model.generate(ROOT.RooArgSet(x), 1000)
 nll = model.createNLL(data, ROOT.RooFit.NumCPU(2))
 
 # Minimize likelihood w.r.t all parameters before making plots
-ROOT.RooMinuit(nll).migrad()
+ROOT.RooMinimizer(nll).migrad()
 
 # Plot likelihood scan frac
 frame1 = frac.frame(ROOT.RooFit.Bins(10), ROOT.RooFit.Range(0.01, 0.95), ROOT.RooFit.Title("LL and profileLL in frac"))
@@ -64,7 +64,7 @@ nll.plotOn(frame2, ROOT.RooFit.ShiftToZero())
 pll_frac = nll.createProfile(ROOT.RooArgSet(frac))
 
 # Plot the profile likelihood in frac
-pll_frac.plotOn(frame1, ROOT.RooFit.LineColor(ROOT.kRed))
+pll_frac.plotOn(frame1, LineColor=ROOT.kRed)
 
 # Adjust frame maximum for visual clarity
 frame1.SetMinimum(0)
@@ -78,7 +78,7 @@ frame1.SetMaximum(3)
 pll_sigmag2 = nll.createProfile(ROOT.RooArgSet(sigma_g2))
 
 # Plot the profile likelihood in sigma_g2
-pll_sigmag2.plotOn(frame2, ROOT.RooFit.LineColor(ROOT.kRed))
+pll_sigmag2.plotOn(frame2, LineColor=ROOT.kRed)
 
 # Adjust frame maximum for visual clarity
 frame2.SetMinimum(0)

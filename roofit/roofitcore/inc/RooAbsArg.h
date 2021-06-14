@@ -301,7 +301,7 @@ public:
     return getObservables(&data) ;
   }
   RooArgSet* getObservables(const RooArgSet* depList, bool valueOnly=true) const ;
-  bool getObservables(const RooArgSet* depList, RooArgSet& outputSet, bool valueOnly=true) const;
+  bool getObservables(const RooAbsCollection* depList, RooArgSet& outputSet, bool valueOnly=true) const;
   Bool_t observableOverlaps(const RooAbsData* dset, const RooAbsArg& testArg) const ;
   Bool_t observableOverlaps(const RooArgSet* depList, const RooAbsArg& testArg) const ;
   virtual Bool_t checkObservables(const RooArgSet* nset) const ;
@@ -502,6 +502,12 @@ public:
   RooExpensiveObjectCache& expensiveObjectCache() const ;
   virtual void setExpensiveObjectCache(RooExpensiveObjectCache &cache) { _eocache = &cache; }
 
+  /// Overwrite the current value stored in this object, making it look like this object computed that value.
+  /// \param[in] value Value to store.
+  /// \param[in] notifyClients Notify users of this object that they need to
+  /// recompute their values.
+  virtual void setCachedValue(double /*value*/, bool /*notifyClients*/ = true) {};
+
   /// @}
   ////////////////////////////////////////////////////////////////////////////
 
@@ -615,7 +621,6 @@ private:
   friend class RooObjectFactory ;
   friend class RooHistPdf ;
   friend class RooHistFunc ;
-  friend class RooHistFunc2 ;
   void registerProxy(RooArgProxy& proxy) ;
   void registerProxy(RooSetProxy& proxy) ;
   void registerProxy(RooListProxy& proxy) ;

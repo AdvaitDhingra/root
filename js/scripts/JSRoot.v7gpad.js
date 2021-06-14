@@ -215,6 +215,11 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
           line_style = this.v7EvalAttr(prefix + "style", 1);
 
       this.createAttLine({ color: line_color, width: line_width, style: line_style });
+
+      if (prefix == "border_") {
+         this.lineatt.rx = this.v7EvalAttr(prefix + "rx", 0);
+         this.lineatt.ry = this.v7EvalAttr(prefix + "ry", 0);
+      }
    }
 
     /** @summary Create this.markeratt object based on v7 attributes
@@ -390,7 +395,8 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
       this.kind = "normal";
       this.vertical = vertical;
       this.log = false;
-      let _log = this.v7EvalAttr("log", 0);
+      let _log = this.v7EvalAttr("log", 0),
+          _symlog = this.v7EvalAttr("symlog", 0);
       this.reverse = opts.reverse || false;
 
       if (this.v7EvalAttr("time")) {
@@ -412,6 +418,9 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
 
       if (this.kind == 'time') {
          this.func = d3.scaleTime().domain([this.convertDate(smin), this.convertDate(smax)]);
+      } else if (_symlog && (_symlog > 0)) {
+         this.symlog = _symlog;
+         this.func = d3.scaleSymlog().constant(_symlog).domain([smin,smax]);
       } else if (_log) {
          if (smax <= 0) smax = 1;
          if ((smin <= 0) || (smin >= smax))
@@ -1353,7 +1362,7 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
       if (arg === 'toggle') arg = this.log ? 0 : 10;
 
       arg = parseFloat(arg);
-      if (Number.isFinite(arg)) this.changeAxisAttr(2, "log", arg);
+      if (Number.isFinite(arg)) this.changeAxisAttr(2, "log", arg, "symlog", 0);
    }
 
    /** @summary Provide context menu for axis */
@@ -1362,10 +1371,13 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
       if (kind) menu.add("Unzoom", () => this.getFramePainter().unzoom(kind));
 
       menu.add("sub:Log scale", () => this.changeAxisLog('toggle'));
-      menu.addchk(!this.log, "linear", 0, arg => this.changeAxisLog(arg));
-      menu.addchk(this.log && (this.logbase==10), "log10", () => this.changeAxisLog(10));
-      menu.addchk(this.log && (this.logbase==2), "log2", () => this.changeAxisLog(2));
-      menu.addchk(this.log && Math.abs(this.logbase - Math.exp(1)) < 0.1, "ln", () => this.changeAxisLog(Math.exp(1)));
+      menu.addchk(!this.log && !this.symlog, "linear", 0, arg => this.changeAxisLog(arg));
+      menu.addchk(this.log && !this.symlog && (this.logbase==10), "log10", () => this.changeAxisLog(10));
+      menu.addchk(this.log && !this.symlog && (this.logbase==2), "log2", () => this.changeAxisLog(2));
+      menu.addchk(this.log && !this.symlog && Math.abs(this.logbase - Math.exp(1)) < 0.1, "ln", () => this.changeAxisLog(Math.exp(1)));
+      menu.addchk(!this.log && this.symlog, "symlog", 0, () => {
+         menu.input("set symlog constant", this.symlog || 10, "float").then(v => this.changeAxisAttr(2,"symlog", v));
+      });
       menu.add("endsub:");
 
       menu.add("sub:Ticks");
@@ -1510,10 +1522,10 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
       if ((this.fX1NDC === undefined) || (force && !this.modified_NDC)) {
 
          let rect = this.getPadPainter().getPadRect();
-         this.fX1NDC = this.v7EvalLength("margin_left", rect.width, JSROOT.settings.FrameNDC.fX1NDC, "margin_all") / rect.width;
-         this.fY1NDC = this.v7EvalLength("margin_bottom", rect.height, JSROOT.settings.FrameNDC.fY1NDC, "margin_all") / rect.height;
-         this.fX2NDC = 1 - this.v7EvalLength("margin_right", rect.width, 1-JSROOT.settings.FrameNDC.fX2NDC, "margin_all") / rect.width;
-         this.fY2NDC = 1 - this.v7EvalLength("margin_top", rect.height, 1-JSROOT.settings.FrameNDC.fY2NDC, "margin_all") / rect.height;
+         this.fX1NDC = this.v7EvalLength("margins_left", rect.width, JSROOT.settings.FrameNDC.fX1NDC, "margins_all") / rect.width;
+         this.fY1NDC = this.v7EvalLength("margins_bottom", rect.height, JSROOT.settings.FrameNDC.fY1NDC, "margins_all") / rect.height;
+         this.fX2NDC = 1 - this.v7EvalLength("margins_right", rect.width, 1-JSROOT.settings.FrameNDC.fX2NDC, "margins_all") / rect.width;
+         this.fY2NDC = 1 - this.v7EvalLength("margins_top", rect.height, 1-JSROOT.settings.FrameNDC.fY2NDC, "margins_all") / rect.height;
       }
 
       if (!this.fillatt)
@@ -1883,10 +1895,10 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
    RFramePainter.prototype.sizeChanged = function() {
 
       let changes = {};
-      this.v7AttrChange(changes, "margin_left", this.fX1NDC);
-      this.v7AttrChange(changes, "margin_bottom", this.fY1NDC);
-      this.v7AttrChange(changes, "margin_right", 1 - this.fX2NDC);
-      this.v7AttrChange(changes, "margin_top", 1 - this.fY2NDC);
+      this.v7AttrChange(changes, "margins_left", this.fX1NDC);
+      this.v7AttrChange(changes, "margins_bottom", this.fY1NDC);
+      this.v7AttrChange(changes, "margins_right", 1 - this.fX2NDC);
+      this.v7AttrChange(changes, "margins_top", 1 - this.fY2NDC);
       this.v7SendAttrChanges(changes, false); // do not invoke canvas update on the server
 
       this.redrawPad();
@@ -1993,7 +2005,7 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
       // first update all attributes from objects
       this.updateAttributes();
 
-      let rect = pp ? pp.getPadRect() : { width: 10, height: 10},
+      let rect = pp ? pp.getPadRect() : { width: 10, height: 10 },
           lm = Math.round(rect.width * this.fX1NDC),
           w = Math.round(rect.width * (this.fX2NDC - this.fX1NDC)),
           tm = Math.round(rect.height * (1 - this.fY2NDC)),
@@ -2059,6 +2071,8 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
               .attr("y", 0)
               .attr("width", w)
               .attr("height", h)
+              .attr("rx", this.lineatt.rx || null)
+              .attr("ry", this.lineatt.ry || null)
               .call(this.fillatt.func)
               .call(this.lineatt.func);
 
@@ -3235,6 +3249,57 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
       }
    }
 
+   /** @summary Extract properties from TObjectDisplayItem */
+   RPadPainter.prototype.extractTObjectProp = function(snap) {
+      if (snap.fColIndex && snap.fColValue) {
+         let colors = this.root_colors || jsrp.root_colors;
+         for (let k = 0; k < snap.fColIndex.length; ++k)
+            colors[snap.fColIndex[k]] = snap.fColValue[k];
+       }
+
+      // painter used only for evaluation of attributes
+      let pattr = new JSROOT.ObjectPainter(), obj = snap.fObject;
+      pattr.assignObject(snap);
+      pattr.csstype = snap.fCssType;
+      pattr.rstyle = snap.fStyle;
+
+      snap.fOption = pattr.v7EvalAttr("opt", "");
+
+      let extract_color = (member_name, attr_name) => {
+         let col = pattr.v7EvalColor(attr_name, "");
+         if (col) obj[member_name] = jsrp.addColor(col, this.root_colors);
+      }
+
+      // handle TAttLine
+      if ((obj.fLineColor !== undefined) && (obj.fLineWidth !== undefined) && (obj.fLineStyle !== undefined)) {
+         extract_color("fLineColor", "line_color");
+         obj.fLineWidth = pattr.v7EvalAttr("line_width", obj.fLineWidth);
+         obj.fLineStyle = pattr.v7EvalAttr("line_style", obj.fLineStyle);
+      }
+
+      // handle TAttFill
+      if ((obj.fFillColor !== undefined) && (obj.fFillStyle !== undefined)) {
+         extract_color("fFillColor", "fill_color");
+         obj.fFillStyle = pattr.v7EvalAttr("fill_style", obj.fFillStyle);
+      }
+
+      // handle TAttMarker
+      if ((obj.fMarkerColor !== undefined) && (obj.fMarkerStyle !== undefined) && (obj.fMarkerSize !== undefined)) {
+         extract_color("fMarkerColor", "marker_color");
+         obj.fMarkerStyle = pattr.v7EvalAttr("marker_style", obj.fMarkerStyle);
+         obj.fMarkerSize = pattr.v7EvalAttr("marker_size", obj.fMarkerSize);
+      }
+
+      // handle TAttText
+      if ((obj.fTextColor !== undefined) && (obj.fTextAlign !== undefined) && (obj.fTextAngle !== undefined) && (obj.fTextSize !== undefined)) {
+         extract_color("fTextColor", "text_color");
+         obj.fTextAlign = pattr.v7EvalAttr("text_align", obj.fTextAlign);
+         obj.fTextAngle = pattr.v7EvalAttr("text_angle", obj.fTextAngle);
+         obj.fTextSize = pattr.v7EvalAttr("text_size", obj.fTextSize);
+         // TODO: v7 font handling differs much from v6, ignore for the moment
+      }
+   }
+
    /** @summary Function called when drawing next snapshot from the list
      * @returns {Promise} with pad painter when ready
      * @private */
@@ -3286,6 +3351,9 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
                return this.drawNextSnap(lst, indx);
             });
 
+         if (snap._typename === "ROOT::Experimental::TObjectDisplayItem")
+            this.extractTObjectProp(snap);
+
          let promise;
 
          if (objpainter.updateObject(snap.fDrawable || snap.fObject || snap, snap.fOption || ""))
@@ -3326,7 +3394,7 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
       if (snap._typename === "ROOT::Experimental::TObjectDisplayItem") {
 
          // identifier used in RObjectDrawable
-         let webSnapIds = { kNone: 0,  kObject: 1, kColors: 4, kStyle: 5, kPalette: 6 };
+         const webSnapIds = { kNone: 0,  kObject: 1, kColors: 4, kStyle: 5, kPalette: 6 };
 
          if (snap.fKind == webSnapIds.kStyle) {
             JSROOT.extend(JSROOT.gStyle, snap.fObject);
@@ -3358,6 +3426,8 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
          if (!this.getFramePainter())
             return JSROOT.draw(this.getDom(), { _typename: "TFrame", $dummy: true }, "")
                          .then(() => this.drawNextSnap(lst, indx-1)); // call same object again
+
+         this.extractTObjectProp(snap);
       }
 
       // TODO - fDrawable is v7, fObject from v6, maybe use same data member?
@@ -3410,7 +3480,7 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
       // if canvas size not specified in batch mode, temporary use 900x700 size
       // if (this.batch_mode && this.iscan && (!padattr.fCw || !padattr.fCh)) { padattr.fCw = 900; padattr.fCh = 700; }
 
-      if (this.iscan && snap.fTitle && !this.embed_canvas && (typeof document !== "undefined"))
+      if (this.iscan && this._websocket && snap.fTitle && !this.embed_canvas && (typeof document !== "undefined"))
          document.title = snap.fTitle;
 
       if (this.snapid === undefined) {
@@ -4648,6 +4718,8 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
           line_width   = this.v7EvalAttr("border_width", 1),
           line_style   = this.v7EvalAttr("border_style", 1),
           line_color   = this.v7EvalColor("border_color", "black"),
+          border_rx    = this.v7EvalAttr("border_rx", 0),
+          border_ry    = this.v7EvalAttr("border_ry", 0),
           fill_color   = this.v7EvalColor("fill_color", "white"),
           fill_style   = this.v7EvalAttr("fill_style", 1);
 
@@ -4672,6 +4744,8 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
                  .attr("width", pave_width)
                  .attr("y", 0)
                  .attr("height", pave_height)
+                 .attr("rx", border_rx || null)
+                 .attr("ry", border_ry || null)
                  .style("stroke", line_color)
                  .attr("stroke-width", line_width)
                  .style("stroke-dasharray", jsrp.root_line_styles[line_style])
@@ -4837,7 +4911,7 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
          return this.fContour && (this.fContour.length > 1) ? this.fContour : null;
       },
 
-      DeleteContour: function() {
+      deleteContour: function() {
          delete this.fContour;
       },
 
@@ -4859,7 +4933,7 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
          return color.toString();
       },
 
-      CreatePaletteColors: function(len) {
+      createPaletteColors: function(len) {
          let arr = [], indx = 0;
 
          while (arr.length < len) {
@@ -4908,7 +4982,11 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
          return JSROOT.v7.extractRColor(next.fColor);
       },
 
-
+      /** @summary set full z scale range, used in zooming */
+      setFullRange: function(min, max) {
+          this.full_min = min;
+          this.full_max = max;
+      },
 
       createContour: function(logz, nlevels, zmin, zmax, zminpositive) {
          this.fContour = [];
@@ -4944,7 +5022,7 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
          }
 
          if (!this.palette || (this.palette.length != nlevels))
-            this.palette = this.CreatePaletteColors(nlevels);
+            this.palette = this.createPaletteColors(nlevels);
       }
 
    });
@@ -4992,7 +5070,9 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
       if (!framep)
          return console.log('no frame painter - no palette');
 
-      let zmin         = contour[0],
+      let gmin         = palette.full_min,
+          gmax         = palette.full_max,
+          zmin         = contour[0],
           zmax         = contour[contour.length-1],
           rect         = framep.getFrameRect(),
           fx           = rect.x,
@@ -5043,7 +5123,9 @@ JSROOT.define(['d3', 'painter'], (d3, jsrp) => {
           .style("stroke", "black")
           .attr("fill", "none");
 
-      framep.z_handle.configureAxis("zaxis", zmin, zmax, zmin, zmax, true, [palette_height, 0], -palette_height, { reverse: false });
+      if ((gmin === undefined) || (gmax === undefined)) { gmin = zmin; gmax = zmax; }
+
+      framep.z_handle.configureAxis("zaxis", gmin, gmax, zmin, zmax, true, [palette_height, 0], -palette_height, { reverse: false });
 
       for (let i=0;i<contour.length-1;++i) {
          let z0 = framep.z_handle.gr(contour[i]),

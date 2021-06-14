@@ -6,39 +6,40 @@
  * For the list of contributors see $ROOTSYS/README/CREDITS.             *
  *************************************************************************/
 
-#ifndef ROOT7_RAttrOnFrame
-#define ROOT7_RAttrOnFrame
+#ifndef ROOT7_RAttrBorder
+#define ROOT7_RAttrBorder
 
+#include <ROOT/RAttrLine.hxx>
 #include <ROOT/RAttrValue.hxx>
 
 namespace ROOT {
 namespace Experimental {
 
-/** \class RAttrOnFrame
+/** \class RAttrBorder
 \ingroup GpadROOT7
 \author Sergey Linev <s.linev@gsi.de>
-\date 2021-05-06
-\brief Class which add onframe property for drawable, used when drawable can be drawn on frame or outside frame
+\date 2021-06-08
+\brief Drawing line attributes for different objects.
 \warning This is part of the ROOT 7 prototype! It will change without notice. It might trigger earthquakes. Feedback is welcome!
 */
 
-class RAttrOnFrame {
+class RAttrBorder : public RAttrLine {
 
-   RAttrValue<bool> fOnFrame;    ///<! is drawable drawn on the frame or not
-   RAttrValue<bool> fClipping;   ///<! if drawable should be clipped by frame
+   RAttrValue<int>     fRx{this, "rx", 0};              ///<! rounding on x coordinate, px
+   RAttrValue<int>     fRy{this, "ry", 0};              ///<! rounding on y coordinate, px
 
-public:
+   R__ATTR_CLASS(RAttrBorder, "border");
 
-   RAttrOnFrame(RDrawable *drawable) : fOnFrame(drawable, "onframe", false), fClipping(drawable, "clipping", false) {}
+   ///The rounding on x, px
+   RAttrBorder &SetRx(int rx) { fRx = rx; return *this; }
+   int GetRx() const { return fRx; }
 
-   void SetOnFrame(bool on = true) { fOnFrame = on; }
-   bool GetOnFrame() const { return fOnFrame; }
-
-   void SetClipping(bool on = true) { fClipping = on; }
-   bool GetClipping() const { return fClipping; }
+   ///The rounding on x, px
+   RAttrBorder &SetRy(int ry) { fRy = ry; return *this; }
+   int GetRy() const { return fRy; }
 };
 
 } // namespace Experimental
 } // namespace ROOT
 
-#endif // ROOT7_RAttrOnFrame
+#endif

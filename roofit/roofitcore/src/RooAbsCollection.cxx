@@ -469,25 +469,6 @@ Bool_t RooAbsCollection::add(const RooAbsArg& var, Bool_t silent)
 }
 
 
-
-////////////////////////////////////////////////////////////////////////////////
-/// Add a collection of arguments to this collection by calling add()
-/// for each element in the source collection
-
-Bool_t RooAbsCollection::add(const RooAbsCollection& list, Bool_t silent)
-{
-  Bool_t result(false) ;
-  _list.reserve(_list.size() + list._list.size());
-
-  for (auto item : list._list) {
-    result |= add(*item,silent);
-  }
-
-  return result;
-}
-
-
-
 ////////////////////////////////////////////////////////////////////////////////
 /// Add a collection of arguments to this collection by calling addOwned()
 /// for each element in the source collection
@@ -710,6 +691,27 @@ RooAbsCollection* RooAbsCollection::selectByAttrib(const char* name, Bool_t valu
 }
 
 
+////////////////////////////////////////////////////////////////////////////////
+/// Create a subset of the current collection, consisting only of those
+/// elements that are contained as well in the given reference collection.
+/// Returns `true` only if something went wrong.
+/// The complement of this function is getParameters().
+/// \param[in] refColl The collection to check for common elements.
+/// \param[out] outColl Output collection.
+
+bool RooAbsCollection::selectCommon(const RooAbsCollection& refColl, RooAbsCollection& outColl) const
+{
+  outColl.clear();
+  outColl.setName((std::string(GetName()) + "_selection").c_str());
+
+  // Scan set contents for matching attribute
+  for (auto arg : _list) {
+    if (refColl.find(*arg))
+      outColl.add(*arg) ;
+  }
+
+  return false;
+}
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -719,20 +721,10 @@ RooAbsCollection* RooAbsCollection::selectByAttrib(const char* name, Bool_t valu
 
 RooAbsCollection* RooAbsCollection::selectCommon(const RooAbsCollection& refColl) const
 {
-  // Create output set
-  TString selName(GetName()) ;
-  selName.Append("_selection") ;
-  RooAbsCollection *sel = (RooAbsCollection*) create(selName.Data()) ;
-
-  // Scan set contents for matching attribute
-  for (auto arg : _list) {
-    if (refColl.find(*arg))
-      sel->add(*arg) ;
-  }
-
+  auto sel = static_cast<RooAbsCollection*>(create("")) ;
+  selectCommon(refColl, *sel);
   return sel ;
 }
-
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -795,21 +787,6 @@ Bool_t RooAbsCollection::equals(const RooAbsCollection& otherColl) const
       compareByNamePtr);
 }
 
-
-
-
-////////////////////////////////////////////////////////////////////////////////
-/// Check if this and other collection have common entries
-
-Bool_t RooAbsCollection::overlaps(const RooAbsCollection& otherColl) const
-{
-  for (auto arg : _list) {
-    if (otherColl.find(*arg)) {
-      return kTRUE ;
-    }
-  }
-  return kFALSE ;
-}
 
 namespace {
 ////////////////////////////////////////////////////////////////////////////////

@@ -17,8 +17,11 @@
 #ifndef ROOT7_RPageSinkBuf
 #define ROOT7_RPageSinkBuf
 
+#include <ROOT/RNTupleMetrics.hxx>
 #include <ROOT/RPageStorage.hxx>
 
+#include <deque>
+#include <iterator>
 #include <memory>
 
 namespace ROOT {
@@ -37,24 +40,65 @@ private:
    /// A buffered column. The column is not responsible for RPage memory management (i.e.
    /// ReservePage/ReleasePage), which is handled by the enclosing RPageSinkBuf.
    class RColumnBuf {
-   private:
-      std::pair<RPageStorage::ColumnHandle_t, std::vector<RPage>> fBuf;
    public:
-      void BufferPage(RPageStorage::ColumnHandle_t columnHandle, const RPage &page) {
-         if (!fBuf.first) {
-            fBuf.first = columnHandle;
+      struct RPageZipItem {
+         RPage fPage;
+         // Compression scratch buffer for fSealedPage.
+         std::unique_ptr<unsigned char[]> fBuf;
+         RPageStorage::RSealedPage fSealedPage;
+         explicit RPageZipItem(RPage page)
+            : fPage(page), fBuf(nullptr) {}
+         bool IsSealed() const {
+            return fSealedPage.fBuffer != nullptr;
          }
-         fBuf.second.push_back(page);
+         void AllocateSealedPageBuf() {
+            fBuf = std::make_unique<unsigned char[]>(fPage.GetSize());
+         }
+      };
+   public:
+      RColumnBuf() = default;
+      RColumnBuf(const RColumnBuf&) = delete;
+      RColumnBuf& operator=(const RColumnBuf&) = delete;
+      RColumnBuf(RColumnBuf&&) = default;
+      RColumnBuf& operator=(RColumnBuf&&) = default;
+      ~RColumnBuf() = default;
+
+      using iterator = std::deque<RPageZipItem>::iterator;
+      /// Returns an iterator to the newly buffered page. The iterator remains
+      /// valid until the return value of DrainBufferedPages() is destroyed.
+      iterator BufferPage(
+         RPageStorage::ColumnHandle_t columnHandle, const RPage &page)
+      {
+         if (!fCol) {
+            fCol = columnHandle;
+         }
+         // Safety: Insertion at the end of a deque never invalidates existing
+         // iterators.
+         fBufferedPages.push_back(RPageZipItem(page));
+         return std::prev(fBufferedPages.end());
       }
-      const RPageStorage::ColumnHandle_t &GetHandle() const { return fBuf.first; }
-      std::vector<RPage> DrainBufferedPages() {
-         std::vector<RPage> drained;
-         std::swap(fBuf.second, drained);
+      const RPageStorage::ColumnHandle_t &GetHandle() const { return fCol; }
+      // When the return value of DrainBufferedPages() is destroyed, all iterators
+      // returned by GetBuffer are invalidated.
+      std::deque<RPageZipItem> DrainBufferedPages() {
+         std::deque<RPageZipItem> drained;
+         std::swap(fBufferedPages, drained);
          return drained;
       }
+   private:
+      RPageStorage::ColumnHandle_t fCol;
+      // Using a deque guarantees that element iterators are never invalidated
+      // by appends to the end of the iterator by BufferPage.
+      std::deque<RPageZipItem> fBufferedPages;
    };
 
 private:
+   /// I/O performance counters that get registered in fMetrics
+   struct RCounters {
+      RNTuplePlainCounter &fParallelZip;
+   };
+   std::unique_ptr<RCounters> fCounters;
+   RNTupleMetrics fMetrics;
    /// The inner sink, responsible for actually performing I/O.
    std::unique_ptr<RPageSink> fInnerSink;
    /// The buffered page sink maintains a copy of the RNTupleModel for the inner sink.
@@ -72,7 +116,7 @@ protected:
 
 public:
    explicit RPageSinkBuf(std::unique_ptr<RPageSink> inner);
-   RPageSinkBuf(const RPageSink&) = delete;
+   RPageSinkBuf(const RPageSinkBuf&) = delete;
    RPageSinkBuf& operator=(const RPageSinkBuf&) = delete;
    RPageSinkBuf(RPageSinkBuf&&) = default;
    RPageSinkBuf& operator=(RPageSinkBuf&&) = default;
@@ -81,7 +125,7 @@ public:
    RPage ReservePage(ColumnHandle_t columnHandle, std::size_t nElements = 0) final;
    void ReleasePage(RPage &page) final;
 
-   RNTupleMetrics &GetMetrics() final { return fInnerSink->GetMetrics(); }
+   RNTupleMetrics &GetMetrics() final { return fMetrics; }
 };
 
 } // namespace Detail

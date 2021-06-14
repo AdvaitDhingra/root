@@ -1240,8 +1240,10 @@ if(imt AND NOT builtin_tbb)
     endif()
   endif()
 
-  # Check that the found TBB does not use captured exceptions.
-  if(TBB_FOUND)
+  # Check that the found TBB does not use captured exceptions. If the header
+  # <tbb/tbb_config.h> does not exist, assume that we have oneTBB newer than
+  # version 2021, which does not have captured exceptions anyway.
+  if(TBB_FOUND AND EXISTS "${TBB_INCLUDE_DIRS}/tbb/tbb_config.h")
     set(CMAKE_REQUIRED_INCLUDES "${TBB_INCLUDE_DIRS}")
     check_cxx_source_compiles("
 #include <tbb/tbb_config.h>
@@ -1594,6 +1596,30 @@ if (vecgeom)
       message(STATUS "              example: CMAKE_PREFIX_PATH=<VecGeom_install_path>/lib/cmake/VecGeom")
       message(STATUS "              For the time being switching OFF 'vecgeom' option")
       set(vecgeom OFF CACHE BOOL "Disabled because VecGeom not found (${vecgeom_description})" FORCE)
+    endif()
+  endif()
+endif()
+
+#---Check for protobuf-------------------------------------------------------------------
+
+if(tmva-sofie)
+  message(STATUS "Looking for Protobuf")
+  find_package(Protobuf)
+  if(NOT Protobuf_FOUND)
+    if(fail-on-missing)
+      message(FATAL_ERROR "Protobuf libraries not found and they are required (tmva-sofie option enabled)")
+    else()
+      message(STATUS "Protobuf not found. Switching off tmva-sofie option")
+      set(tmva-sofie OFF CACHE BOOL "Disabled because Protobuf not found" FORCE)
+    endif()
+  else()
+    if(Protobuf_VERSION LESS 3.0)
+      if(fail-on-missing)
+        message(FATAL_ERROR "Protobuf libraries found but is less than the version required (3.0) (tmva-sofie option enabled)")
+      else()
+        message(STATUS "Protobuf found but its version is not high enough (>3.0). Switching off tmva-sofie option")
+        set(tmva-sofie OFF CACHE BOOL "Disabled because found Protobuf version is not enough" FORCE)
+      endif()
     endif()
   endif()
 endif()

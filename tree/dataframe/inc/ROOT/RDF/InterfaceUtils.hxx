@@ -287,6 +287,10 @@ void CheckFilter(Filter &)
                  "filter expression returns a type that is not convertible to bool");
 }
 
+ColumnNames_t FilterArraySizeColNames(const ColumnNames_t &columnNames, const std::string &action);
+
+std::string ResolveAlias(const std::string &col, const std::map<std::string, std::string> &aliasMap);
+
 void CheckValidCppVarName(std::string_view var, const std::string &where);
 
 void CheckForRedefinition(const std::string &where, std::string_view definedCol, const ColumnNames_t &customCols,
@@ -498,6 +502,7 @@ void CallBuildAction(std::shared_ptr<PrevNodeType> *prevNodeOnHeap, const char *
 
    auto actionPtr =
       BuildAction<ColTypes...>(cols, std::move(*helperArgOnHeap), nSlots, std::move(prevNodePtr), ActionTag{}, *defines);
+   loopManager.AddDataBlockCallback(actionPtr->GetDataBlockCallback());
    jittedActionOnHeap->SetAction(std::move(actionPtr));
 
    // defines points to the columns structure in the heap, created before the jitted call so that the jitter can
@@ -529,7 +534,7 @@ struct RMinReturnType<T, true> {
 template <typename R, typename F, typename... Args>
 std::function<R(unsigned int, Args...)> AddSlotParameter(F &f, TypeList<Args...>)
 {
-   return [f](unsigned int, Args... a) -> R { return f(a...); };
+   return [f](unsigned int, Args... a) mutable -> R { return f(a...); };
 }
 
 template <typename ColType, typename... Rest>
@@ -647,6 +652,8 @@ struct IsDeque_t : std::false_type {};
 template <typename T>
 struct IsDeque_t<std::deque<T>> : std::true_type {};
 // clang-format on
+
+void CheckForDuplicateSnapshotColumns(const ColumnNames_t &cols);
 
 } // namespace RDF
 } // namespace Internal

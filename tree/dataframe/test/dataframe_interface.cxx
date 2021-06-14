@@ -1,6 +1,10 @@
-#include "ROOT/RDataFrame.hxx"
-#include "ROOT/RTrivialDS.hxx"
+#include "CounterHelper.h"
+#include "MaxSlotHelper.h"
+
 #include "ROOT/RCsvDS.hxx"
+#include "ROOT/RDataFrame.hxx"
+#include "ROOT/RStringView.hxx"
+#include "ROOT/RTrivialDS.hxx"
 #include "TMemFile.h"
 #include "TSystem.h"
 #include "TTree.h"
@@ -448,7 +452,7 @@ TEST(RDataFrameInterface, ColumnWithSimpleStruct)
    ROOT::RDataFrame df(t);
    const std::vector<std::string> expected({ "c.a", "a", "c.b", "b", "c" });
    EXPECT_EQ(df.GetColumnNames(), expected);
-   for (const std::string &col : {"c.a", "a"}) {
+   for (std::string_view col : {"c.a", "a"}) {
       EXPECT_DOUBLE_EQ(df.Mean<int>(col).GetValue(), 42.); // compiled
       EXPECT_DOUBLE_EQ(df.Mean(col).GetValue(), 42.); // jitted
    }
@@ -708,4 +712,64 @@ TEST(RDataFrameInterface, DescribeDataset)
    // others with an actual fDataSource, like csv
    auto df3 = ROOT::RDF::MakeCsvDataFrame("RCsvDS_test_headers.csv");
    EXPECT_EQ(df3.DescribeDataset(), "Dataframe from datasource RCsv");
+}
+
+// #var is a convenience alias for __rdf_sizeof_var.
+TEST(RDataFrameInterface, ShortSyntaxForCollectionSizes)
+{
+   auto df = ROOT::RDataFrame(1).Define("__rdf_sizeof_x", [] { return 42; });
+   auto m1 = df.Max<int>("#x");
+   auto m2 = df.Max("#x");
+   auto m3 = df.Define("y", [] (int xs) { return xs; }, {"#x"}).Max<int>("y");
+   auto m4 = df.Filter("2 + pow(#x, 2) > 0").Max<int>("#x");
+   auto dfWithAlias = df.Alias("szx", "#x");
+   auto m5 = dfWithAlias.Max<int>("szx");
+   auto m6 = dfWithAlias.Max("szx");
+   EXPECT_EQ(*m1, 42);
+   EXPECT_EQ(*m2, 42);
+   EXPECT_EQ(*m3, 42);
+   EXPECT_EQ(*m4, 42);
+   EXPECT_EQ(*m5, 42);
+   EXPECT_EQ(*m6, 42);
+}
+
+// make sure #pragma is ignored, and multiple #var1 #var2 are allowed
+TEST(RDataFrameInterface, StressShortSyntaxForCollectionSizes)
+{
+   gInterpreter->Declare("#define RDF_DO_FILTER 1");
+   auto df = ROOT::RDF::RNode(ROOT::RDataFrame(42));
+   // Define __rdf_sizeof_var{1,2,...,100}
+   for (int i = 1; i <= 100; ++i)
+      df = df.Define("__rdf_sizeof_var" + std::to_string(i), [] { return 1; });
+
+   // Filter expression is "#var1 + #var2 + ... + #var100 == 100"
+   std::string expr = "#var1";
+   for (int i = 2; i <= 100; ++i)
+      expr += "+#var" + std::to_string(i);
+   expr = expr + " == 100";
+   expr = "\n#ifdef RDF_DO_FILTER\nreturn " + expr + ";\n#else\nreturn false;\n#endif";
+   df = df.Filter(expr);
+   auto c = df.Count().GetValue();
+   EXPECT_EQ(c, 42ull);
+}
+
+TEST(RDataFrameInterface, MutableForeach)
+{
+   int i = 0;
+   ROOT::RDataFrame(10).Foreach([&](ULong64_t) mutable { ++i; }, {"rdfentry_"});
+   EXPECT_EQ(i, 10);
+}
+
+TEST(RDataFrameInterface, BookWithoutColumns)
+{
+   EXPECT_EQ(ROOT::RDataFrame(3).Book<>(CounterHelper()).GetValue(), 3);
+   EXPECT_THROW(ROOT::RDataFrame(3).Book(MaxSlotHelper(1u)), std::logic_error);
+}
+
+TEST(RDataFrameInterface, SnapshotWithDuplicateColumns)
+{
+   EXPECT_THROW(
+      (ROOT::RDataFrame(1).Snapshot<ULong64_t, ULong64_t>("t", "neverwritten.root", {"rdfentry_", "rdfentry_"})),
+      std::logic_error);
+   EXPECT_THROW((ROOT::RDataFrame(1).Snapshot("t", "neverwritten.root", {"rdfentry_", "rdfentry_"})), std::logic_error);
 }

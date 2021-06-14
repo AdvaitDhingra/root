@@ -16,10 +16,20 @@
 
 #include <ROOT/RNTupleOptions.hxx>
 #include <ROOT/RNTupleModel.hxx>
+#include <ROOT/RNTupleZip.hxx>
 #include <ROOT/RPageSinkBuf.hxx>
 
 ROOT::Experimental::Detail::RPageSinkBuf::RPageSinkBuf(std::unique_ptr<RPageSink> inner)
-   : RPageSink(inner->GetNTupleName(), inner->GetWriteOptions()), fInnerSink(std::move(inner)) {}
+   : RPageSink(inner->GetNTupleName(), inner->GetWriteOptions())
+   , fMetrics("RPageSinkBuf")
+   , fInnerSink(std::move(inner))
+{
+   fCounters = std::unique_ptr<RCounters>(new RCounters{
+      *fMetrics.MakeCounter<RNTuplePlainCounter*>("ParallelZip", "",
+         "compressing pages in parallel")
+   });
+   fMetrics.ObserveMetrics(fInnerSink->GetMetrics());
+}
 
 void ROOT::Experimental::Detail::RPageSinkBuf::CreateImpl(const RNTupleModel &model)
 {
@@ -36,7 +46,27 @@ ROOT::Experimental::Detail::RPageSinkBuf::CommitPageImpl(ColumnHandle_t columnHa
    // make sure the page is aware of how many elements it will have
    R__ASSERT(bufPage.TryGrow(page.GetNElements()));
    memcpy(bufPage.GetBuffer(), page.GetBuffer(), page.GetSize());
-   fBufferedColumns.at(columnHandle.fId).BufferPage(columnHandle, bufPage);
+   // Safety: RColumnBuf::iterators are guaranteed to be valid until the
+   // element is destroyed. In other words, all buffered page iterators are
+   // valid until the return value of DrainBufferedPages() goes out of scope in
+   // CommitCluster().
+   RColumnBuf::iterator zipItem =
+      fBufferedColumns.at(columnHandle.fId).BufferPage(columnHandle, bufPage);
+   if (!fTaskScheduler) {
+      return RClusterDescriptor::RLocator{};
+   }
+   fCounters->fParallelZip.SetValue(1);
+   // Thread safety: Each thread works on a distinct zipItem which owns its
+   // compression buffer.
+   zipItem->AllocateSealedPageBuf();
+   R__ASSERT(zipItem->fBuf);
+   fTaskScheduler->AddTask([this, zipItem, colId = columnHandle.fId] {
+      zipItem->fSealedPage = SealPage(zipItem->fPage,
+         *fBufferedColumns.at(colId).GetHandle().fColumn->GetElement(),
+         fOptions.GetCompression(), zipItem->fBuf.get()
+      );
+   });
+
    // we're feeding bad locators to fOpenPageRanges but it should not matter
    // because they never get written out
    return RClusterDescriptor::RLocator{};
@@ -55,10 +85,19 @@ ROOT::Experimental::Detail::RPageSinkBuf::CommitSealedPageImpl(
 ROOT::Experimental::RClusterDescriptor::RLocator
 ROOT::Experimental::Detail::RPageSinkBuf::CommitClusterImpl(ROOT::Experimental::NTupleSize_t nEntries)
 {
+   if (fTaskScheduler) {
+      fTaskScheduler->Wait();
+      fTaskScheduler->Reset();
+   }
+
    for (auto &bufColumn : fBufferedColumns) {
       for (auto &bufPage : bufColumn.DrainBufferedPages()) {
-         fInnerSink->CommitPage(bufColumn.GetHandle(), bufPage);
-         ReleasePage(bufPage);
+         if (bufPage.IsSealed()) {
+            fInnerSink->CommitSealedPage(bufColumn.GetHandle().fId, bufPage.fSealedPage);
+         } else {
+            fInnerSink->CommitPage(bufColumn.GetHandle(), bufPage.fPage);
+         }
+         ReleasePage(bufPage.fPage);
       }
    }
    fInnerSink->CommitCluster(nEntries);

@@ -17,7 +17,6 @@
 #define ROOT7_RPageStorageFile
 
 #include <ROOT/RMiniFile.hxx>
-#include <ROOT/RNTupleMetrics.hxx>
 #include <ROOT/RNTupleZip.hxx>
 #include <ROOT/RPageStorage.hxx>
 #include <ROOT/RStringView.hxx>
@@ -55,12 +54,6 @@ The written file can be either in ROOT format or in RNTuple bare format.
 // clang-format on
 class RPageSinkFile : public RPageSink {
 private:
-   /// I/O performance counters that get registered in fMetrics
-   struct RCounters {
-      RNTupleAtomicCounter &fNPageCommitted;
-   };
-   std::unique_ptr<RCounters> fCounters;
-   RNTupleMetrics fMetrics;
    std::unique_ptr<RPageAllocatorHeap> fPageAllocator;
 
    std::unique_ptr<Internal::RNTupleFileWriter> fWriter;
@@ -69,6 +62,9 @@ private:
    /// Byte offset of the end of the last page of the current cluster
    std::uint64_t fClusterMaxOffset = 0;
    RPageSinkFile(std::string_view ntupleName, const RNTupleWriteOptions &options);
+
+   RClusterDescriptor::RLocator WriteSealedPage(const RPageStorage::RSealedPage &sealedPage,
+                                                std::size_t bytesPacked);
 
 protected:
    void CreateImpl(const RNTupleModel &model) final;
@@ -91,8 +87,6 @@ public:
 
    RPage ReservePage(ColumnHandle_t columnHandle, std::size_t nElements = 0) final;
    void ReleasePage(RPage &page) final;
-
-   RNTupleMetrics &GetMetrics() final { return fMetrics; }
 };
 
 
@@ -123,30 +117,6 @@ public:
    static constexpr std::size_t kMaxPageSize = 1024 * 1024;
 
 private:
-   /// I/O performance counters that get registered in fMetrics
-   struct RCounters {
-      RNTupleAtomicCounter &fNReadV;
-      RNTupleAtomicCounter &fNRead;
-      RNTupleAtomicCounter &fSzReadPayload ;
-      RNTupleAtomicCounter &fSzReadOverhead;
-      RNTupleAtomicCounter &fSzUnzip;
-      RNTupleAtomicCounter &fNClusterLoaded;
-      RNTupleAtomicCounter &fNPageLoaded;
-      RNTupleAtomicCounter &fNPagePopulated;
-      RNTupleAtomicCounter &fTimeWallRead;
-      RNTupleAtomicCounter &fTimeWallUnzip;
-      RNTupleTickCounter<RNTupleAtomicCounter> &fTimeCpuRead;
-      RNTupleTickCounter<RNTupleAtomicCounter> &fTimeCpuUnzip;
-      RNTupleCalcPerf &fBandwidthReadUncompressed;
-      RNTupleCalcPerf &fBandwidthReadCompressed;
-      RNTupleCalcPerf &fBandwidthUnzip;
-      RNTupleCalcPerf &fFractionReadOverhead;
-      RNTupleCalcPerf &fCompressionRatio;
-   };
-   std::unique_ptr<RCounters> fCounters;
-   /// Wraps the I/O counters and is observed by the RNTupleReader metrics
-   RNTupleMetrics fMetrics;
-
    /// Populated pages might be shared; there memory buffer is managed by the RPageAllocatorFile
    std::unique_ptr<RPageAllocatorFile> fPageAllocator;
    /// The page pool might, at some point, be used by multiple page sources
@@ -188,8 +158,6 @@ public:
                        RSealedPage &sealedPage) final;
 
    std::unique_ptr<RCluster> LoadCluster(DescriptorId_t clusterId, const ColumnSet_t &columns) final;
-
-   RNTupleMetrics &GetMetrics() final { return fMetrics; }
 };
 
 

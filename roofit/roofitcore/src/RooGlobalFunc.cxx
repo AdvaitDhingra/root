@@ -35,11 +35,44 @@ using namespace std;
 
 namespace RooFit {
 
+  // anonymous namespace for helper functions for the implementation of the global functions
+  namespace {
+
+  template<class T>
+  RooCmdArg processImportItem(std::pair<std::string const, T*> const& item) {
+    return Import(item.first.c_str(), *item.second) ;
+  }
+
+  template<class T>
+  RooCmdArg processLinkItem(std::pair<std::string const, T*> const& item) {
+    return Link(item.first.c_str(), *item.second) ;
+  }
+
+  RooCmdArg processSliceItem(std::pair<RooCategory * const, std::string> const& item) {
+    return Slice(*item.first, item.second.c_str());
+  }
+
+  template<class Map_t, class Func_t>
+  RooCmdArg processMap(const char* name, Func_t func, Map_t const& map) {
+    RooCmdArg container(name,0,0,0,0,0,0,0,0) ;
+    for (auto const& item : map) {
+      container.addArg(func(item)) ;
+    }
+    container.setProcessRecArgs(true,false) ;
+    return container ;
+  }
+
+  } // namespace
+
+
   // RooAbsReal::plotOn arguments
   RooCmdArg DrawOption(const char* opt)            { return RooCmdArg("DrawOption",0,0,0,0,opt,0,0,0) ; }
   RooCmdArg Slice(const RooArgSet& sliceSet)       { return RooCmdArg("SliceVars",0,0,0,0,0,0,&sliceSet,0) ; }
   RooCmdArg Slice(RooArgSet && sliceSet)           { return Slice(RooCmdArg::take(std::move(sliceSet))); }
   RooCmdArg Slice(RooCategory& cat, const char* label) { return RooCmdArg("SliceCat",0,0,0,0,label,0,&cat,0) ; }
+  RooCmdArg Slice(std::map<RooCategory*, std::string> const& arg) {
+    return processMap("SliceCatMany", processSliceItem, arg);
+  }
 
   RooCmdArg Project(const RooArgSet& projSet)      { return RooCmdArg("Project",0,0,0,0,0,0,&projSet,0) ; }
   RooCmdArg Project(RooArgSet && projSet)          { return Project(RooCmdArg::take(std::move(projSet))); }
@@ -110,22 +143,10 @@ namespace RooFit {
   RooCmdArg Import(TH1& histo, Bool_t importDensity)      { return RooCmdArg("ImportHisto",importDensity,0,0,0,0,0,&histo,0) ; }
 
   RooCmdArg Import(const std::map<std::string,RooDataHist*>& arg) {
-    RooCmdArg container("ImportDataHistSliceMany",0,0,0,0,0,0,0,0) ; 
-    std::map<std::string,RooDataHist*>::const_iterator iter ;
-    for (iter = arg.begin() ; iter!=arg.end() ; ++iter) {
-      container.addArg(Import(iter->first.c_str(),*(iter->second))) ;
-    }
-    container.setProcessRecArgs(kTRUE,kFALSE) ;
-    return container ;
+    return processMap("ImportDataHistSliceMany", processImportItem<RooDataHist>, arg);
   }
   RooCmdArg Import(const std::map<std::string,TH1*>& arg) {
-    RooCmdArg container("ImportHistoSliceMany",0,0,0,0,0,0,0,0) ; 
-    std::map<std::string,TH1*>::const_iterator iter ;
-    for (iter = arg.begin() ; iter!=arg.end() ; ++iter) {
-      container.addArg(Import(iter->first.c_str(),*(iter->second))) ;
-    }
-    container.setProcessRecArgs(kTRUE,kFALSE) ;
-    return container ;
+    return processMap("ImportHistoSliceMany", processImportItem<TH1>, arg);
   }
 
   
@@ -144,22 +165,10 @@ namespace RooFit {
   RooCmdArg OwnLinked()                                 { return RooCmdArg("OwnLinked",1,0,0,0,0,0,0,0,0,0,0) ; }
 
   RooCmdArg Import(const std::map<std::string,RooDataSet*>& arg) {
-    RooCmdArg container("ImportDataSliceMany",0,0,0,0,0,0,0,0) ; 
-    std::map<std::string,RooDataSet*>::const_iterator iter ;
-    for (iter = arg.begin() ; iter!=arg.end() ; ++iter) {
-      container.addArg(Import(iter->first.c_str(),*(iter->second))) ;
-    }
-    container.setProcessRecArgs(kTRUE,kFALSE) ;
-    return container ;
+    return processMap("ImportDataSliceMany", processImportItem<RooDataSet>, arg);
   }
   RooCmdArg Link(const std::map<std::string,RooAbsData*>& arg) {
-    RooCmdArg container("LinkDataSliceMany",0,0,0,0,0,0,0,0) ; 
-    std::map<std::string,RooAbsData*>::const_iterator iter ;
-    for (iter = arg.begin() ; iter!=arg.end() ; ++iter) {
-      container.addArg(Link(iter->first.c_str(),*(iter->second))) ;
-    }
-    container.setProcessRecArgs(kTRUE,kFALSE) ;
-    return container ;
+    return processMap("LinkDataSliceMany", processLinkItem<RooAbsData>, arg);
   }
  
 
@@ -209,8 +218,6 @@ namespace RooFit {
   RooCmdArg Minos(Bool_t flag)           { return RooCmdArg("Minos",flag,0,0,0,0,0,0,0) ; }
   RooCmdArg Minos(const RooArgSet& minosArgs)            { return RooCmdArg("Minos",kTRUE,0,0,0,0,0,&minosArgs,0) ; }
   RooCmdArg Minos(RooArgSet && minosArgs) { return Minos(RooCmdArg::take(std::move(minosArgs))); }
-  RooCmdArg ConditionalObservables(const RooArgSet& set) { return RooCmdArg("ProjectedObservables",0,0,0,0,0,0,0,0,0,0,&set) ; }
-  RooCmdArg ProjectedObservables(const RooArgSet& set)   { return RooCmdArg("ProjectedObservables",0,0,0,0,0,0,0,0,0,0,&set) ; }
   RooCmdArg SplitRange(Bool_t flag)                      { return RooCmdArg("SplitRange",flag,0,0,0,0,0,0,0) ; }
   RooCmdArg SumCoefRange(const char* rangeName)          { return RooCmdArg("SumCoefRange",0,0,0,0,rangeName,0,0,0) ; }
   RooCmdArg Constrain(const RooArgSet& params)           { return RooCmdArg("Constrain",0,0,0,0,0,0,0,0,0,0,&params) ; }
